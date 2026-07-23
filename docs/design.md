@@ -172,9 +172,22 @@ priority/path.
 
 **Full scope implemented** — 1.a, 1.b, 2, and 3.a–3.d are all in
 scope, including 1.b ship-specific muster-list codes even though
-Signal K has no native source of truth for a muster list: those
-codes are defined/uploaded through the plugin's own configuration
-(per zone/role), not derived from any existing Signal K path.
+Signal K has no native source of truth for a muster list. Structure
+chosen: a flat, path-first `musterListCodes` list in plugin config
+(`{ path, zone, pattern }` per entry) rather than a separate
+code-registry/assignment split — simpler, at the cost of duplicating
+a pattern's text if the same code is reused across multiple paths.
+
+1.b patterns are entered as **plain text**, not an uploaded audio
+file: a space-separated list of `<freqHz>:<durationMs>` tokens, e.g.
+`"500:1000 0:250 2000:1000"` (a frequency of `0` means silence for
+that duration). This avoids needing file-upload support in
+`plugin.schema`/`react-jsonschema-form`, which wasn't confirmed to
+exist. Each distinct pattern is synthesized once (`lib/tonePattern.js`)
+and cached on disk by content hash (`lib/tones.js`,
+`resolveMusterClipPath`) rather than regenerated per alert
+occurrence — consistent with the "generated once, then treated as a
+static asset" approach used for the built-in 1.a/2/3.a–3.d clips.
 
 **Sequencing**: the tone plays first, then the spoken announcement
 follows — not in parallel, and not as a replacement for either tier.

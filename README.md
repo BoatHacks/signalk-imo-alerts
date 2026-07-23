@@ -26,12 +26,15 @@ Early scaffold. Implemented so far:
 - Ack/silence reconciliation: PUT handler registered per active alert
   path, plus a poll fallback for updates that don't emit a delta
   (`lib/ackListener.js`), mirroring `signalk-dead-mans-switch`
+- 1.b ship-specific muster-list codes: entered as a text pattern
+  (`"<freqHz>:<durationMs> ..."`), parsed and synthesized once per
+  distinct pattern, then cached (`lib/tonePattern.js`, `lib/tones.js`)
 - Plugin wiring, `plugin.schema`, REST endpoints
   (`/active`, `/test-announce`, `/acknowledge`, `/silence`), minimal
   demo webapp
 
-Not yet done: muster-list code UI polish, CI verification against a
-real signalk-server instance, actual release/publish.
+Not yet done: CI verification against a real signalk-server instance,
+actual release/publish.
 
 ## Development
 

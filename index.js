@@ -5,7 +5,7 @@ const { resolvePriority, shouldVoice, PRIORITY } = require('./lib/priority')
 const { resolveMessage } = require('./lib/templates')
 const { AlertQueue } = require('./lib/alertQueue')
 const { speak } = require('./lib/tts')
-const { resolveToneCode, play: playTone } = require('./lib/tones')
+const { resolveClipPath, play: playTone } = require('./lib/tones')
 const { createAckListener } = require('./lib/ackListener')
 
 module.exports = function (app) {
@@ -89,13 +89,17 @@ module.exports = function (app) {
       },
       musterListCodes: {
         type: 'array',
-        title: 'IMO A.1021(26) 1.b ship-specific muster-list tone codes',
+        title: 'IMO A.1021(26) 1.b ship-specific muster-list tone patterns',
         items: {
           type: 'object',
           properties: {
             path: { type: 'string', title: 'Notification path' },
             zone: { type: 'string', title: 'Zone / role' },
-            toneCode: { type: 'string', title: 'Tone identifier (maps to sounds/tones/<id>.wav)' }
+            pattern: {
+              type: 'string',
+              title:
+                'Tone pattern: space-separated <freqHz>:<durationMs> tokens, e.g. "500:1000 0:250 2000:1000" (freq 0 = silence)'
+            }
           }
         }
       }
@@ -225,9 +229,9 @@ module.exports = function (app) {
   let currentSpeechAbort = null
 
   async function announce (entry) {
-    const toneCode = resolveToneCode(entry.priority, entry.path, config.musterListCodes)
-    if (config.playback.server && toneCode) {
-      currentTonePlayback = playTone(toneCode)
+    const clipPath = resolveClipPath(entry.priority, entry.path, config.musterListCodes)
+    if (config.playback.server && clipPath) {
+      currentTonePlayback = playTone(clipPath)
       await currentTonePlayback.promise
       currentTonePlayback = null
     }
