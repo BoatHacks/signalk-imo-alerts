@@ -20,14 +20,18 @@ Early scaffold. Implemented so far:
 - Alert queue: priority preemption, same-priority chronological queueing,
   shared silence/acknowledge state, configurable repeat (`lib/alertQueue.js`)
 - espeak-ng TTS wrapper with graceful fallback (`lib/tts.js`)
-- Tone pattern lookup for IMO A.1021(26) Table 7.2 (`lib/tones.js`) -
-  clip files themselves not yet generated, see `sounds/tones/README.md`
-- Plugin wiring, `plugin.schema`, REST test endpoint, minimal demo webapp
+- Tone pattern lookup and playback for IMO A.1021(26) Table 7.2
+  (`lib/tones.js`), with the actual clips generated via
+  `scripts/generate_tones.py` (`sounds/tones/*.wav`)
+- Ack/silence reconciliation: PUT handler registered per active alert
+  path, plus a poll fallback for updates that don't emit a delta
+  (`lib/ackListener.js`), mirroring `signalk-dead-mans-switch`
+- Plugin wiring, `plugin.schema`, REST endpoints
+  (`/active`, `/test-announce`, `/acknowledge`, `/silence`), minimal
+  demo webapp
 
-Not yet done: actual tone clip generation, ack/silence detection wired up
-to real Signal K PUT handlers/subscriptions (currently only reacts to
-`status.acknowledged`/`method` on the notification itself), muster-list
-code UI polish, CI verification against a real signalk-server instance.
+Not yet done: muster-list code UI polish, CI verification against a
+real signalk-server instance, actual release/publish.
 
 ## Development
 

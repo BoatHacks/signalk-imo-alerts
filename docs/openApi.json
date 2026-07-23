@@ -55,6 +55,48 @@
           "400": { "description": "Invalid request body" }
         }
       }
+    },
+    "/plugins/signalk-imo-alerts/acknowledge": {
+      "post": {
+        "summary": "Fully acknowledge an active alert (stops repeats until state changes again)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["path"],
+                "properties": { "path": { "type": "string" } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Accepted" },
+          "400": { "description": "Invalid request body" }
+        }
+      }
+    },
+    "/plugins/signalk-imo-alerts/silence": {
+      "post": {
+        "summary": "Temporarily silence an active alert (repeat resumes automatically unless also acknowledged - MSC.302(87) silenced vs. acknowledged states)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["path"],
+                "properties": { "path": { "type": "string" } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Accepted" },
+          "400": { "description": "Invalid request body" }
+        }
+      }
     }
   }
 }

@@ -192,9 +192,18 @@ announcements aren't an out-of-spec addition.
 
 **Clip production**: tones are pre-recorded audio clips per pattern,
 not synthesized live at runtime. The clips are generated once
-(offline synthesis) and then shipped/treated as static assets from
-then on — not sourced from an existing CC0 library like
-`signalk-ships-bells`' sound effects.
+(offline synthesis, `scripts/generate_tones.py`) and then
+shipped/treated as static assets from then on — not sourced from an
+existing CC0 library like `signalk-ships-bells`' sound effects. The
+3.a–3.d waveforms use the pulse-rate/frequency bounds Table 7.2
+actually specifies (0.5–2.0 Hz, 500 Hz baseline, 2000 Hz maximum;
+1.0 Hz was chosen within that range as this plugin's own
+implementation value). Table 7.2 does **not** specify a carrier
+frequency for 1.a/2 — it describes the ship's-horn blast *pattern*
+(7 short + 1 prolonged, or continuous), not a tone — so the 1000 Hz /
+800 Hz used for those two are this plugin's own synthesis choices,
+not values taken from the standard. See `sounds/tones/README.md` for
+the generated files.
 
 ## Explicitly out of scope (for now)
 

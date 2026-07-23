@@ -6,6 +6,7 @@ const { resolveMessage } = require('./lib/templates')
 const { AlertQueue } = require('./lib/alertQueue')
 const { speak } = require('./lib/tts')
 const { resolveToneCode, play: playTone } = require('./lib/tones')
+const { createAckListener } = require('./lib/ackListener')
 
 module.exports = function (app) {
   const plugin = {
@@ -19,6 +20,7 @@ module.exports = function (app) {
   let queue = null
   let tickInterval = null
   let config = {}
+  let ackListener = null
   // Cached meta.displayUnits per path, populated via sendMeta subscription -
   // see docs/design.md, numeric interpolation.
   const metaByPath = {}
@@ -113,6 +115,12 @@ module.exports = function (app) {
 
     tickInterval = setInterval(() => queue.tick(), 1000)
 
+    ackListener = createAckListener(app, {
+      pluginId: plugin.id,
+      getQueue: () => queue
+    })
+    ackListener.startPolling(() => (queue ? [...queue.alerts.keys()] : []))
+
     const unsubMeta = app.subscriptionmanager.subscribe(
       {
         context: 'vessels.self',
@@ -134,6 +142,8 @@ module.exports = function (app) {
     unsubscribes = []
     if (tickInterval) clearInterval(tickInterval)
     tickInterval = null
+    if (ackListener) ackListener.stop()
+    ackListener = null
     queue = null
   }
 
@@ -208,6 +218,7 @@ module.exports = function (app) {
     })
 
     queue.upsert(notificationPath, priority, message)
+    ackListener.syncPaths([notificationPath])
   }
 
   let currentTonePlayback = null
@@ -260,6 +271,26 @@ module.exports = function (app) {
         return
       }
       queue.upsert('test.announce', priority, message)
+      res.json({ ok: true })
+    })
+
+    router.post('/acknowledge', (req, res) => {
+      const { path: notificationPath } = req.body || {}
+      if (typeof notificationPath !== 'string') {
+        res.status(400).json({ error: 'expected { path: string }' })
+        return
+      }
+      queue.acknowledge(notificationPath)
+      res.json({ ok: true })
+    })
+
+    router.post('/silence', (req, res) => {
+      const { path: notificationPath } = req.body || {}
+      if (typeof notificationPath !== 'string') {
+        res.status(400).json({ error: 'expected { path: string }' })
+        return
+      }
+      queue.silence(notificationPath)
       res.json({ ok: true })
     })
   }
