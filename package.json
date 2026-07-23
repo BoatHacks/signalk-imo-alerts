@@ -1,0 +1,24 @@
+{
+  "name": "signalk-imo-alerts",
+  "version": "0.1.0",
+  "description": "Spoken alert announcements and IMO A.1021(26) alert tone patterns for Signal K notifications",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test test/"
+  },
+  "keywords": [
+    "signalk-node-server-plugin",
+    "signalk-webapp",
+    "signalk"
+  ],
+  "author": "Tobias Rosenstock",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BoatHacks/signalk-imo-alerts.git"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {}
+}

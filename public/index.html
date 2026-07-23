@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>signalk-imo-alerts - demo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 0.4rem; border-bottom: 1px solid #ddd; }
+    form { margin-top: 2rem; display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    input, select, button { padding: 0.4rem; }
+  </style>
+</head>
+<body>
+  <h1>signalk-imo-alerts</h1>
+  <p>Demo mode: shows currently active alerts and lets you trigger a test
+     announcement to check pronunciation/volume before trusting it live.</p>
+
+  <table>
+    <thead><tr><th>Path</th><th>Priority</th><th>Message</th><th>State</th></tr></thead>
+    <tbody id="active-alerts"></tbody>
+  </table>
+
+  <form id="test-form">
+    <select id="test-priority">
+      <option value="1">Caution</option>
+      <option value="2">Warning</option>
+      <option value="3">Alarm</option>
+      <option value="4">Emergency alarm</option>
+    </select>
+    <input id="test-message" type="text" placeholder="Message to speak" size="30" />
+    <button type="submit">Test announce</button>
+  </form>
+
+  <script src="app.js"></script>
+</body>
+</html>

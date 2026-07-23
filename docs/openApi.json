@@ -1,0 +1,60 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "signalk-imo-alerts",
+    "version": "0.1.0",
+    "description": "Spoken alert announcements and IMO A.1021(26) alert tone patterns"
+  },
+  "paths": {
+    "/plugins/signalk-imo-alerts/active": {
+      "get": {
+        "summary": "List currently active (voiceable) alerts",
+        "responses": {
+          "200": {
+            "description": "Active alerts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "path": { "type": "string" },
+                      "priority": { "type": "number" },
+                      "message": { "type": "string" },
+                      "state": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/plugins/signalk-imo-alerts/test-announce": {
+      "post": {
+        "summary": "Manually trigger a test announcement (for verifying pronunciation/volume)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["priority", "message"],
+                "properties": {
+                  "priority": { "type": "number" },
+                  "message": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Accepted" },
+          "400": { "description": "Invalid request body" }
+        }
+      }
+    }
+  }
+}
