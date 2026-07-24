@@ -245,8 +245,11 @@ module.exports = function (app) {
   async function playAnnouncement ({ clipPath, message, language }) {
     if (config.playback.server && clipPath) {
       currentTonePlayback = playTone(clipPath)
-      await currentTonePlayback.promise
+      const toneResult = await currentTonePlayback.promise
       currentTonePlayback = null
+      if (!toneResult.played) {
+        app.debug(`tone playback unavailable, falling back to browser playback: ${toneResult.reason}`)
+      }
     }
 
     if (config.playback.server && message) {

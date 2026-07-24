@@ -17,6 +17,25 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- The PUT handler for acknowledge/silence (`lib/ackListener.js`) used
+  a Node-style error-first callback (`callback(null, result)`), but
+  `signalk-server`'s `put.js` calls the handler's callback with a
+  single argument (`callback(reply)`) — or, for a synchronous handler
+  like this one, expects the result returned directly. This meant
+  every PUT-based acknowledge/silence actually worked (the alert
+  state genuinely changed) but the HTTP response was a 500 with
+  "Cannot read properties of null (reading 'state')", traced by
+  reading `signalk-server`'s own source against the actual error.
+  Found by running a real `signalk-server` instance against this
+  plugin and driving it with actual HTTP/WebSocket traffic, not just
+  the mocked unit tests — also confirmed via the same live run that
+  `/options`, `/active`, `/tone-clip` (all three query modes),
+  `/acknowledge`, `/silence`, the full notification pipeline
+  (including the pinned Emergency Alarm path), and both graceful TTS/
+  tone fallbacks work correctly end-to-end. Fixed by returning the
+  result directly instead of using the callback at all, since the
+  handler's logic is fully synchronous.
+
 - Browser-side tone preview/playback (`public/app.js`) wasn't audibly
   playing anything, even though the request logic traced through
   correctly on paper. Rewrote `playToneInBrowser` to fetch the clip as

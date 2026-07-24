@@ -27,7 +27,7 @@ function makeFakeQueue () {
   }
 }
 
-test('PUT handler is registered once per path and dispatches acknowledge/silence', () => {
+test('PUT handler is registered once per path, dispatches acknowledge/silence, and returns a result directly', () => {
   const app = makeFakeApp()
   const queue = makeFakeQueue()
   const listener = createAckListener(app, { pluginId: 'test', getQueue: () => queue })
@@ -37,12 +37,28 @@ test('PUT handler is registered once per path and dispatches acknowledge/silence
   assert.equal(Object.keys(app._putHandlers).length, 1)
 
   const handler = app._putHandlers['notifications.mob']
-  const cb = () => {}
-  handler(null, 'notifications.mob', { action: 'acknowledge' }, cb)
-  handler(null, 'notifications.mob', { action: 'silence' }, cb)
+  const ackResult = handler(null, 'notifications.mob', { action: 'acknowledge' })
+  const silenceResult = handler(null, 'notifications.mob', { action: 'silence' })
 
   assert.deepEqual(queue.acked, ['notifications.mob'])
   assert.deepEqual(queue.silenced, ['notifications.mob'])
+  // signalk-server's put.js reads .state directly off the handler's return
+  // value (no callback) for a synchronous handler like this one - passing
+  // null/undefined here throws "Cannot read properties of null/undefined
+  // (reading 'state')" server-side, which is exactly the bug this replaced.
+  assert.deepEqual(ackResult, { state: 'COMPLETED', statusCode: 200 })
+  assert.deepEqual(silenceResult, { state: 'COMPLETED', statusCode: 200 })
+})
+
+test('PUT handler returns a result even when the queue is not yet available', () => {
+  const app = makeFakeApp()
+  const listener = createAckListener(app, { pluginId: 'test', getQueue: () => null })
+
+  listener.syncPaths(['notifications.mob'])
+  const handler = app._putHandlers['notifications.mob']
+  const result = handler(null, 'notifications.mob', { action: 'acknowledge' })
+
+  assert.deepEqual(result, { state: 'COMPLETED', statusCode: 503 })
 })
 
 test('poll fallback acknowledges when method drops "sound" without a delta', async () => {
