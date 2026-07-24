@@ -32,19 +32,76 @@
         }
       }
     },
+    "/plugins/signalk-imo-alerts/options": {
+      "get": {
+        "summary": "List available priorities and built-in tone codes, for the test-mode form",
+        "responses": {
+          "200": {
+            "description": "Available options",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "priorities": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "value": { "type": "number" },
+                          "label": { "type": "string" }
+                        }
+                      }
+                    },
+                    "toneCodes": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "value": { "type": "string" },
+                          "label": { "type": "string" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/plugins/signalk-imo-alerts/tone-clip": {
+      "get": {
+        "summary": "Serve a tone clip's audio, either a built-in code, a custom pattern, or a priority's default",
+        "parameters": [
+          { "name": "code", "in": "query", "schema": { "type": "string" }, "description": "Built-in tone code, e.g. '1a'" },
+          { "name": "pattern", "in": "query", "schema": { "type": "string" }, "description": "Custom '<freqHz>:<durationMs> ...' pattern" },
+          { "name": "priority", "in": "query", "schema": { "type": "number" }, "description": "Priority to use its default tone" }
+        ],
+        "responses": {
+          "200": { "description": "audio/wav clip" },
+          "400": { "description": "No code/pattern/priority given, or invalid pattern" },
+          "404": { "description": "Clip not found" }
+        }
+      }
+    },
     "/plugins/signalk-imo-alerts/test-announce": {
       "post": {
-        "summary": "Manually trigger a test announcement (for verifying pronunciation/volume)",
+        "summary": "Manually trigger a test announcement, combining any priority/tone/message/language (for verifying pronunciation, volume, and tone selection before trusting it live)",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["priority", "message"],
+                "required": ["priority"],
                 "properties": {
                   "priority": { "type": "number" },
-                  "message": { "type": "string" }
+                  "message": { "type": "string" },
+                  "toneCode": { "type": "string", "description": "Built-in code, or 'none'; omit to use the priority's default" },
+                  "tonePattern": { "type": "string", "description": "Custom pattern, overrides toneCode if given" },
+                  "language": { "type": "string" }
                 }
               }
             }

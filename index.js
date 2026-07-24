@@ -1,11 +1,18 @@
 'use strict'
 
+const fs = require('fs')
 const path = require('path')
-const { resolvePriority, shouldVoice, PRIORITY } = require('./lib/priority')
+const { resolvePriority, shouldVoice, PRIORITY, priorityName } = require('./lib/priority')
 const { resolveMessage } = require('./lib/templates')
 const { AlertQueue } = require('./lib/alertQueue')
 const { speak } = require('./lib/tts')
-const { resolveClipPath, play: playTone } = require('./lib/tones')
+const {
+  resolveClipPath,
+  resolveMusterClipPath,
+  clipPathFor,
+  TONE_CODE,
+  play: playTone
+} = require('./lib/tones')
 const { createAckListener } = require('./lib/ackListener')
 
 module.exports = function (app) {
@@ -226,18 +233,26 @@ module.exports = function (app) {
   }
 
   let currentTonePlayback = null
-  let currentSpeechAbort = null
 
   async function announce (entry) {
     const clipPath = resolveClipPath(entry.priority, entry.path, config.musterListCodes)
+    await playAnnouncement({ clipPath, message: entry.message, language: config.language })
+  }
+
+  /**
+   * Plays a tone clip (if any) followed by a spoken message (if any),
+   * server-side. Used both for real alerts (via the queue) and for
+   * one-off test/demo playback (see /test-announce).
+   */
+  async function playAnnouncement ({ clipPath, message, language }) {
     if (config.playback.server && clipPath) {
       currentTonePlayback = playTone(clipPath)
       await currentTonePlayback.promise
       currentTonePlayback = null
     }
 
-    if (config.playback.server) {
-      const result = await speak(entry.message, { language: config.language })
+    if (config.playback.server && message) {
+      const result = await speak(message, { language: language || config.language })
       if (!result.spoken) {
         app.debug(`espeak-ng unavailable, falling back to browser playback: ${result.reason}`)
       }
@@ -268,14 +283,73 @@ module.exports = function (app) {
       )
     })
 
+    router.get('/options', (req, res) => {
+      res.json({
+        priorities: [PRIORITY.CAUTION, PRIORITY.WARNING, PRIORITY.ALARM, PRIORITY.EMERGENCY_ALARM].map(
+          (value) => ({ value, label: priorityName(value) })
+        ),
+        // 1b (SHIP_SPECIFIC) isn't listed as a fixed code - it needs a
+        // pattern, entered separately (see tonePattern field/param).
+        toneCodes: Object.values(TONE_CODE)
+          .filter((code) => code !== TONE_CODE.SHIP_SPECIFIC)
+          .map((code) => ({ value: code, label: code }))
+      })
+    })
+
+    router.get('/tone-clip', (req, res) => {
+      const { code, pattern, priority } = req.query
+      try {
+        let clipPath
+        if (pattern) {
+          clipPath = resolveMusterClipPath(pattern)
+        } else if (code && code !== 'none') {
+          clipPath = clipPathFor(code)
+        } else if (priority) {
+          clipPath = resolveClipPath(Number(priority), '__test__', [])
+        } else {
+          res.status(400).json({ error: 'expected a code, pattern, or priority query param' })
+          return
+        }
+        if (!clipPath || !fs.existsSync(clipPath)) {
+          res.status(404).json({ error: 'clip not found' })
+          return
+        }
+        res.type('audio/wav')
+        res.sendFile(path.resolve(clipPath))
+      } catch (err) {
+        res.status(400).json({ error: err.message })
+      }
+    })
+
     router.post('/test-announce', (req, res) => {
-      const { priority, message } = req.body || {}
-      if (typeof priority !== 'number' || typeof message !== 'string') {
-        res.status(400).json({ error: 'expected { priority: number, message: string }' })
+      const { priority, message, toneCode, tonePattern, language } = req.body || {}
+      if (typeof priority !== 'number') {
+        res.status(400).json({ error: 'expected { priority: number, ... }' })
         return
       }
-      queue.upsert('test.announce', priority, message)
+
+      let clipPath
+      try {
+        if (tonePattern) {
+          clipPath = resolveMusterClipPath(tonePattern)
+        } else if (toneCode === 'none') {
+          clipPath = null
+        } else if (toneCode) {
+          clipPath = clipPathFor(toneCode)
+        } else {
+          clipPath = resolveClipPath(priority, '__test__', [])
+        }
+      } catch (err) {
+        res.status(400).json({ error: `invalid tone pattern: ${err.message}` })
+        return
+      }
+
+      // respond immediately - server-side playback happens asynchronously
+      // and shouldn't hold the HTTP request open
       res.json({ ok: true })
+      playAnnouncement({ clipPath, message: message || null, language }).catch((err) =>
+        app.debug(`test-announce playback error: ${err}`)
+      )
     })
 
     router.post('/acknowledge', (req, res) => {

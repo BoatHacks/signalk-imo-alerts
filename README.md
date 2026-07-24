@@ -30,8 +30,10 @@ Early scaffold. Implemented so far:
   (`"<freqHz>:<durationMs> ..."`), parsed and synthesized once per
   distinct pattern, then cached (`lib/tonePattern.js`, `lib/tones.js`)
 - Plugin wiring, `plugin.schema`, REST endpoints
-  (`/active`, `/test-announce`, `/acknowledge`, `/silence`), minimal
-  demo webapp
+  (`/active`, `/options`, `/tone-clip`, `/test-announce`,
+  `/acknowledge`, `/silence`), and a full test-mode webapp: a form
+  combining priority/tone/custom-pattern/message/language, playing
+  both in-browser and (if enabled) server-side
 
 Not yet done: CI verification against a real signalk-server instance,
 actual release/publish.

@@ -143,11 +143,23 @@ and is not the primary configuration surface.
 
 ## Testing / operability
 
-- **REST endpoint** to manually trigger a test announcement
-  (arbitrary priority/message), for verifying pronunciation and
-  volume before trusting it in a real alert — similar in spirit to
-  `signalk-notification-dispatcher`'s `send-alert.sh`.
-- **Demo mode** in the companion webapp for the same purpose.
+- **REST endpoints**: `/test-announce` triggers a one-off test
+  announcement combining any priority, tone (built-in code, custom
+  pattern, or the priority's default), message, and language;
+  `/options` lists the available priorities and built-in tone codes;
+  `/tone-clip` serves a clip's raw audio (built-in, custom pattern,
+  or a priority's default) for browser playback. Similar in spirit
+  to `signalk-notification-dispatcher`'s `send-alert.sh`.
+- **Test mode** in the companion webapp: a form exposing all of the
+  above as one combination — priority, tone selection (including a
+  free-text pattern field for previewing a muster-list code before
+  saving it to config), message, and language — with a "preview tone
+  only" button and a "play combination" button. Playback happens
+  both in the browser (via the `<audio>` element + Web Speech API,
+  immediately) and server-side (via `/test-announce`, if server-side
+  playback is enabled in plugin config) — so a muster-list pattern
+  can be checked from a laptop before trusting it to whatever the
+  Signal K host is actually wired to.
 
 ## Alert tone patterns (IMO A.1021(26))
 

@@ -1,10 +1,13 @@
 // No external dependencies - nothing to vendor. Uses the browser's native
-// Web Speech API for browser-side playback (see docs/design.md, "Playback").
+// Web Speech API and <audio> element for browser-side playback (see
+// docs/design.md, "Playback").
 (function () {
   'use strict'
 
   var BASE = '/plugins/signalk-imo-alerts'
   var spokenPaths = new Set()
+
+  // --- Active alerts table -------------------------------------------------
 
   function fetchActive () {
     fetch(BASE + '/active', { cache: 'no-store' })
@@ -41,26 +44,111 @@
     })
   }
 
-  function speak (text) {
-    if (!window.speechSynthesis) return
+  function speak (text, language) {
+    if (!window.speechSynthesis || !text) return
     var utterance = new SpeechSynthesisUtterance(text)
+    if (language) utterance.lang = language
     window.speechSynthesis.speak(utterance)
   }
 
+  setInterval(fetchActive, 2000)
+  fetchActive()
+
+  // --- Test mode -------------------------------------------------------------
+
+  var prioritySelect = document.getElementById('test-priority')
+  var toneSelect = document.getElementById('test-tone')
+  var patternRow = document.getElementById('test-pattern-row')
+  var patternInput = document.getElementById('test-pattern')
+  var messageInput = document.getElementById('test-message')
+  var languageInput = document.getElementById('test-language')
+  var tonePlayer = document.getElementById('tone-player')
+
+  fetch(BASE + '/options', { cache: 'no-store' })
+    .then(function (res) { return res.json() })
+    .then(function (options) {
+      options.priorities.forEach(function (p) {
+        var opt = document.createElement('option')
+        opt.value = p.value
+        opt.textContent = p.label
+        prioritySelect.appendChild(opt)
+      })
+      options.toneCodes.forEach(function (t) {
+        var opt = document.createElement('option')
+        opt.value = t.value
+        opt.textContent = t.label
+        toneSelect.appendChild(opt)
+      })
+    })
+    .catch(function (err) {
+      console.error('signalk-imo-alerts: failed to fetch options', err)
+    })
+
+  toneSelect.addEventListener('change', function () {
+    patternRow.style.display = toneSelect.value === '__custom__' ? 'flex' : 'none'
+  })
+
+  function currentSelection () {
+    var toneValue = toneSelect.value
+    var isCustom = toneValue === '__custom__'
+    return {
+      priority: Number(prioritySelect.value),
+      toneCode: isCustom || toneValue === '' ? undefined : toneValue,
+      tonePattern: isCustom ? patternInput.value : undefined,
+      message: messageInput.value || undefined,
+      language: languageInput.value || undefined
+    }
+  }
+
+  function toneClipUrl (sel) {
+    var params = new URLSearchParams()
+    if (sel.tonePattern) params.set('pattern', sel.tonePattern)
+    else if (sel.toneCode) params.set('code', sel.toneCode)
+    else params.set('priority', String(sel.priority))
+    return BASE + '/tone-clip?' + params.toString()
+  }
+
+  function playToneInBrowser (sel) {
+    return new Promise(function (resolve) {
+      if (sel.toneCode === 'none') {
+        resolve()
+        return
+      }
+      tonePlayer.src = toneClipUrl(sel)
+      tonePlayer.onended = resolve
+      tonePlayer.onerror = function () {
+        console.error('signalk-imo-alerts: failed to load/play tone clip')
+        resolve()
+      }
+      tonePlayer.play().catch(function (err) {
+        console.error('signalk-imo-alerts: tone playback blocked', err)
+        resolve()
+      })
+    })
+  }
+
+  document.getElementById('test-preview').addEventListener('click', function () {
+    playToneInBrowser(currentSelection())
+  })
+
   document.getElementById('test-form').addEventListener('submit', function (ev) {
     ev.preventDefault()
-    var priority = Number(document.getElementById('test-priority').value)
-    var message = document.getElementById('test-message').value
+    var sel = currentSelection()
+
+    // browser-side: play tone then speak, immediately
+    playToneInBrowser(sel).then(function () {
+      speak(sel.message, sel.language)
+    })
+
+    // server-side (if enabled in plugin config, exercises the real
+    // espeak-ng/aplay path on the Signal K host)
     fetch(BASE + '/test-announce', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       cache: 'no-store',
-      body: JSON.stringify({ priority: priority, message: message })
+      body: JSON.stringify(sel)
     }).catch(function (err) {
       console.error('signalk-imo-alerts: test-announce failed', err)
     })
   })
-
-  setInterval(fetchActive, 2000)
-  fetchActive()
 })()

@@ -5,34 +5,74 @@
   <title>signalk-imo-alerts - demo</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    body { font-family: sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; }
-    table { width: 100%; border-collapse: collapse; }
+    body { font-family: sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; }
     th, td { text-align: left; padding: 0.4rem; border-bottom: 1px solid #ddd; }
-    form { margin-top: 2rem; display: flex; gap: 0.5rem; flex-wrap: wrap; }
-    input, select, button { padding: 0.4rem; }
+    fieldset { margin-top: 2rem; }
+    .row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.6rem; align-items: center; }
+    .row label { min-width: 9rem; }
+    input, select, textarea, button { padding: 0.4rem; font-size: 1rem; }
+    textarea { width: 100%; }
+    #test-pattern-row { display: none; }
+    small { color: #666; display: block; margin-top: -0.3rem; margin-bottom: 0.6rem; }
   </style>
 </head>
 <body>
   <h1>signalk-imo-alerts</h1>
-  <p>Demo mode: shows currently active alerts and lets you trigger a test
-     announcement to check pronunciation/volume before trusting it live.</p>
+  <p>Active alerts, updated from <code>notifications.*</code>:</p>
 
   <table>
     <thead><tr><th>Path</th><th>Priority</th><th>Message</th><th>State</th></tr></thead>
     <tbody id="active-alerts"></tbody>
   </table>
 
-  <form id="test-form">
-    <select id="test-priority">
-      <option value="1">Caution</option>
-      <option value="2">Warning</option>
-      <option value="3">Alarm</option>
-      <option value="4">Emergency alarm</option>
-    </select>
-    <input id="test-message" type="text" placeholder="Message to speak" size="30" />
-    <button type="submit">Test announce</button>
-  </form>
+  <fieldset>
+    <legend>Test mode</legend>
+    <p>Combine any priority, tone, message, and language to preview
+       exactly what an alert would sound like - without waiting for a
+       real notification. Plays in this browser (Web Speech API) and,
+       if server-side playback is enabled in plugin config, on the
+       Signal K host too.</p>
 
+    <form id="test-form">
+      <div class="row">
+        <label for="test-priority">Priority</label>
+        <select id="test-priority"></select>
+      </div>
+
+      <div class="row">
+        <label for="test-tone">Tone</label>
+        <select id="test-tone">
+          <option value="">Priority default</option>
+          <option value="none">None</option>
+          <option value="__custom__">Custom pattern...</option>
+        </select>
+      </div>
+
+      <div class="row" id="test-pattern-row">
+        <label for="test-pattern">Pattern</label>
+        <input id="test-pattern" type="text" placeholder="500:1000 0:250 2000:1000" size="40" />
+      </div>
+      <small>Space-separated &lt;freqHz&gt;:&lt;durationMs&gt; tokens (freq 0 = silence) - same format as a musterListCodes entry.</small>
+
+      <div class="row">
+        <label for="test-message">Message</label>
+        <input id="test-message" type="text" placeholder="Message to speak (optional)" size="40" />
+      </div>
+
+      <div class="row">
+        <label for="test-language">Language</label>
+        <input id="test-language" type="text" placeholder="en" size="6" />
+      </div>
+
+      <div class="row">
+        <button type="button" id="test-preview">Preview tone only</button>
+        <button type="submit">Play combination</button>
+      </div>
+    </form>
+  </fieldset>
+
+  <audio id="tone-player"></audio>
   <script src="app.js"></script>
 </body>
 </html>
