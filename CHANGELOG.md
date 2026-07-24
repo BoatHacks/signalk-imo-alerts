@@ -1,0 +1,64 @@
+# Changelog
+
+All notable changes to this project are documented here. Format loosely
+follows [Keep a Changelog](https://keepachangelog.com/).
+
+## [Unreleased]
+
+Not yet released or published to npm. Everything below has landed on
+`main` but no tagged release exists yet.
+
+### Added
+
+- Initial design document (`docs/design.md`) covering priority mapping,
+  message templates, playback, repeat/silence/acknowledge behavior,
+  concurrency handling, and regulatory grounding (MSC.302(87), IEC 62923,
+  SMCP, GMDSS/DSC).
+- Core plugin scaffold:
+  - `lib/priority.js` — Signal K state ↔ MSC.302(87) priority mapping,
+    with a configurable pinned-path Emergency Alarm tier.
+  - `lib/templates.js` + `lib/units.js` — message templates (generic
+    fallback + per-path overrides) with numeric interpolation via
+    Signal K's own `displayUnits` meta.
+  - `lib/alertQueue.js` — priority preemption, same-priority
+    chronological queueing, shared silence/acknowledge state,
+    configurable repeat (30s default).
+  - `lib/tts.js` — espeak-ng wrapper with graceful fallback.
+  - `lib/tones.js` — IMO A.1021(26) Table 7.2 tone code resolution and
+    playback.
+  - `index.js` — plugin wiring, `plugin.schema`, initial REST test
+    endpoint, minimal demo webapp.
+  - CI via Signal K's reusable `plugin-ci.yml`.
+- IMO A.1021(26) Table 7.2 tone clips (1.a, 2, 3.a–3.d), generated via
+  offline synthesis (`scripts/generate_tones.py`).
+- Ack/silence wired to real Signal K mechanisms (`lib/ackListener.js`):
+  a PUT handler registered per active alert path, plus a poll fallback
+  for updates that don't emit a delta — mirrors
+  `signalk-dead-mans-switch`'s reconciliation approach. REST
+  `/acknowledge` and `/silence` endpoints.
+- Text-based pattern format for 1.b ship-specific muster-list codes
+  (`lib/tonePattern.js`): space-separated `<freqHz>:<durationMs>`
+  tokens (e.g. `"500:1000 0:250 2000:1000"`), synthesized once per
+  distinct pattern and cached on disk by content hash
+  (`resolveMusterClipPath` in `lib/tones.js`).
+- Full test mode in the demo webapp: a form combining priority, tone
+  (built-in code, custom pattern, or the priority's default), message,
+  and language. Plays both in-browser (`<audio>` + Web Speech API) and
+  server-side via the extended `/test-announce` endpoint. New
+  `GET /options` and `GET /tone-clip` REST endpoints support the form.
+
+### Design decisions of note
+
+See `docs/design.md` for the full rationale on each of these:
+
+- Persistence: none — the plugin re-subscribes to `notifications.*` on
+  restart rather than keeping its own local queue, per MSC.302(87)
+  §12.3/§13.1.2.5.
+- Debouncing: none — relies on the alert emitter; confirmed the
+  regulations don't take a position on this either way.
+- Concurrency: a new higher-priority alert preempts a currently-playing
+  lower-priority one; same-priority alerts queue chronologically.
+- Tone and voice share a single silence/acknowledge state, per IEC's
+  own BAM mariner guidance.
+
+[Unreleased]: https://github.com/BoatHacks/signalk-imo-alerts/compare/ca20682...HEAD

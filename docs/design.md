@@ -138,8 +138,9 @@ domain, not this plugin's).
 
 Native `plugin.schema` config — no custom Preact+htm rule-editor
 webapp for this one, unlike some of the other plugins. The companion
-webapp exists only for a **demo mode** (preview/test announcements)
-and is not the primary configuration surface.
+webapp exists only for **test mode** (preview/test announcements,
+see "Testing / operability" below) and is not the primary
+configuration surface.
 
 ## Testing / operability
 

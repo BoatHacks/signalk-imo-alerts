@@ -7,7 +7,8 @@ concepts where they apply.
 
 See [docs/design.md](docs/design.md) for the full design rationale,
 including which parts are grounded in the actual regulatory text and which
-are this plugin's own synthesis.
+are this plugin's own synthesis. See [CHANGELOG.md](CHANGELOG.md) for
+what's landed so far.
 
 ## Status
 
@@ -42,4 +43,11 @@ actual release/publish.
 
 ```sh
 npm test
+```
+
+35 tests currently passing. To regenerate the built-in tone clips
+(`sounds/tones/*.wav`) after changing `scripts/generate_tones.py`:
+
+```sh
+python3 scripts/generate_tones.py
 ```
