@@ -5,7 +5,11 @@ generated once via offline synthesis (`scripts/generate_tones.py`) rather
 than sourced from an existing CC0 library or synthesized live at runtime -
 see docs/design.md, "Clip production".
 
-- `1a.wav` - General emergency alarm (7 short blasts + 1 prolonged)
+- `1a.wav` - General emergency alarm (7 short blasts + 1 prolonged).
+  The pattern itself is defined in IMO MSC.48(66) (LSA Code) §7.2.1.1
+  ("seven or more short blasts followed by one long blast") - A.1021(26)
+  Table 7.2 just cross-references it as the general-emergency-alarm
+  audible code.
 - `2.wav` - Continuous tone
 - `3a.wav` - Square pulse train
 - `3b.wav` - Sawtooth rise with sharp fall

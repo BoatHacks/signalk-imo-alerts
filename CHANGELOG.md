@@ -5,6 +5,16 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Documentation
+
+- Cited IMO MSC.48(66) (LSA Code) §7.2.1.1 as the actual source of the
+  1.a general emergency alarm blast pattern ("seven or more short
+  blasts followed by one long blast") — A.1021(26) only cross-
+  references it. Also noted that §7.2.1.1's "temporarily interrupted
+  by a message on the public address system" is direct regulatory
+  support for the tone-then-voice sequencing decision, not just this
+  plugin's own inference.
+
 ## [0.1.0] - 2026-07-24
 
 Not yet published to npm.

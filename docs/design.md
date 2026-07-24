@@ -38,6 +38,16 @@ transcribing any one of them:
 - **IMO A.1021(26)**: specifies the actual *audible tone patterns*
   (Table 7.2, Audible Codes) — this is the one source here that
   literally is about sound signal design, not just priority/state.
+- **IMO MSC.48(66) — LSA Code, §7.2.1.1** ("General emergency alarm
+  system"): the actual definition of the general emergency alarm
+  signal — "seven or more short blasts followed by one long blast"
+  on the ship's whistle/siren, plus an electrically-operated
+  bell/klaxon — and, notably, that the alarm "shall continue to
+  function after it has been triggered until it is manually turned
+  off or is **temporarily interrupted by a message on the public
+  address system**." That last clause is direct regulatory support
+  for this plugin's tone-then-voice sequencing (see "Sequencing"
+  below) — it isn't just this plugin's own synthesis after all.
 
 Where design decisions below are derived from these sources rather
 than directly specified by them, that's called out explicitly.
@@ -183,6 +193,14 @@ waveforms with a 0.5–2.0 Hz pulse rate, between a 500 Hz baseline and
 a 2000 Hz peak); all four are implemented and selectable per
 priority/path.
 
+1.a's own pattern ("7 short + 1 prolonged") is a paraphrase of the
+actual defining text, which lives in **MSC.48(66) (LSA Code)
+§7.2.1.1**, not in A.1021(26) itself: "seven or more short blasts
+followed by one long blast." A.1021(26) Table 7.2 just cross-
+references this as the general-emergency-alarm audible code; the
+regulation's own wording allows *more than seven* short blasts, of
+which this plugin's clip uses exactly seven (the stated minimum).
+
 **Full scope implemented** — 1.a, 1.b, 2, and 3.a–3.d are all in
 scope, including 1.b ship-specific muster-list codes even though
 Signal K has no native source of truth for a muster list. Structure
@@ -204,6 +222,13 @@ static asset" approach used for the built-in 1.a/2/3.a–3.d clips.
 
 **Sequencing**: the tone plays first, then the spoken announcement
 follows — not in parallel, and not as a replacement for either tier.
+This isn't just this plugin's own synthesis: MSC.48(66) (LSA Code)
+§7.2.1.1 describes the general emergency alarm as continuing until
+manually turned off or "temporarily interrupted by a message on the
+public address system" — i.e. the regulation itself anticipates a
+tone being paused for a spoken message, which is exactly this
+sequencing (tone, then voice, per occurrence) rather than the two
+running concurrently.
 
 **Shared silence/acknowledge state**: the tone does **not** have its
 own independent silence/ack state. It shares the same state as the

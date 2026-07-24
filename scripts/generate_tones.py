@@ -13,11 +13,13 @@ baseline of 500 Hz and a maximum of 2000 Hz." A pulse rate of 1.0 Hz
 (mid-range) is used here as this plugin's own implementation choice,
 since the standard gives a range, not a fixed value.
 
-Table 7.2 does not specify a carrier frequency for codes 1.a/2 (it
-describes the blast pattern - 7 short + 1 prolonged, or continuous -
-not a tone frequency, since it's written for a ship's actual horn/
-klaxon). 1000 Hz / 800 Hz are this plugin's own synthesis choices for
-those two, not values taken from the standard.
+1.a's blast *pattern* is defined in IMO MSC.48(66) (LSA Code) §7.2.1.1,
+not in A.1021(26) itself: "seven or more short blasts followed by one
+long blast." This script uses exactly seven (the stated minimum).
+Neither document specifies a carrier frequency for codes 1.a/2 (they
+describe the ship's actual horn/klaxon blast pattern, not a tone), so
+the 1000 Hz / 800 Hz used for those two are this plugin's own
+synthesis choices, not values taken from either standard.
 
 1.b (ship-specific muster-list codes) has no fixed clip - resolved
 per-installation from plugin config - so it isn't generated here.
@@ -66,7 +68,9 @@ def silence(duration):
 
 
 def generate_1a():
-    """General emergency alarm: 7 short blasts + 1 prolonged blast."""
+    """General emergency alarm: 7 short blasts + 1 prolonged blast, per
+    MSC.48(66) (LSA Code) §7.2.1.1's minimum ("seven or more short
+    blasts followed by one long blast")."""
     samples = []
     for _ in range(7):
         samples += tone(1000, 0.5)
