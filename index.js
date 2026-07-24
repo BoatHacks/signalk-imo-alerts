@@ -144,8 +144,6 @@ module.exports = function (app) {
       'all' // sendMeta - needed for displayUnits, see docs/design.md
     )
     unsubscribes.push(unsubMeta)
-
-    registerRoutes()
   }
 
   plugin.stop = function () {
@@ -266,10 +264,7 @@ module.exports = function (app) {
     currentTonePlayback = null
   }
 
-  function registerRoutes () {
-    const router = app.getPluginRouter?.() || app.router // signalk-server convention varies by version
-    if (!router) return
-
+  plugin.registerWithRouter = function (router) {
     router.get('/active', (req, res) => {
       res.json(
         queue

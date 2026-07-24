@@ -15,6 +15,22 @@ follows [Keep a Changelog](https://keepachangelog.com/).
   support for the tone-then-voice sequencing decision, not just this
   plugin's own inference.
 
+### Fixed
+
+- REST routes (`/active`, `/options`, `/tone-clip`, `/test-announce`,
+  `/acknowledge`, `/silence`) were registered via a guessed
+  `app.getPluginRouter?.() || app.router` fallback, which is not the
+  actual Signal K plugin API. Routes could end up mounted at the
+  wrong path (or not at all) depending on server version, which is
+  what caused the webapp's priority dropdown (and likely the other
+  REST-backed features) to come up empty. Fixed by implementing
+  `plugin.registerWithRouter(router)` instead — the real convention,
+  which the server calls itself and always mounts at
+  `/plugins/<id>/`, matching what `signalk-notification-dispatcher`
+  and the other plugins already do correctly.
+
+
+
 ### Changed
 
 - Reduced the 1.a/2 carrier frequency from 1000/800 Hz to 500 Hz
