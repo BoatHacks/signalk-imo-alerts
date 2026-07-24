@@ -14,6 +14,15 @@ follows [Keep a Changelog](https://keepachangelog.com/).
   by a message on the public address system" is direct regulatory
   support for the tone-then-voice sequencing decision, not just this
   plugin's own inference.
+- Audited the priority→tone-code defaults against A.1021(26)'s actual
+  Tables 7.1.1–7.1.3 (not just Table 7.2's code definitions). Found
+  these tables assign codes per specific alarm *function*
+  (fire-related vs. machinery/steering/etc.), not per priority tier,
+  and that Warning/Caution have no Table 7.2 basis at all. Swapped
+  Caution↔Warning defaults (Caution→3.c, Warning→3.a) and documented,
+  in `docs/design.md` and inline in `lib/tones.js`, exactly which
+  parts of the mapping are standard-grounded and which are this
+  plugin's own simplification.
 
 ### Fixed
 

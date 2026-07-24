@@ -201,6 +201,63 @@ references this as the general-emergency-alarm audible code; the
 regulation's own wording allows *more than seven* short blasts, of
 which this plugin's clip uses exactly seven (the stated minimum).
 
+### Priority → default tone code mapping
+
+This plugin maps each MSC.302(87) priority to one default tone code
+(`lib/tones.js`, `DEFAULT_TONE_FOR_PRIORITY`):
+
+| Priority | Default code |
+|---|---|
+| Caution | `3.c` |
+| Warning | `3.a` |
+| Alarm | `2` |
+| Emergency alarm | `1.a` |
+
+**This is a simplification, and only partially grounded in the
+standard.** Reading A.1021(26)'s actual Tables 7.1.1–7.1.3 (which
+assign codes to specific alarm *functions*, not to priority tiers)
+shows the real picture is messier than "one code per priority":
+
+- **Caution and Warning have no Table 7.2 basis at all.** Tables
+  7.1.1–7.1.3 only cover the Alarm and Emergency Alarm tiers — there
+  is no table row anywhere assigning an audible code to a
+  Warning- or Caution-priority item. The `3.c`/`3.a` defaults above
+  for these two are **entirely this plugin's own synthesis**, not
+  derived from the standard, despite being drawn from the same
+  A.1021(26) waveform set.
+- **Within the Emergency Alarm tier, the code depends on which
+  specific alarm it is**, not just the tier: the *General emergency
+  alarm* function specifically gets `1.a`/`1.b`, but other Emergency
+  Alarm-tier functions (fire alarm proper, fire-extinguishing
+  pre-discharge, watertight door closing, water ingress main alarm)
+  get `2` instead — with fire alarm additionally allowed `3.c`/`3.d`
+  for distinction from other alarms. This plugin's blanket
+  `EMERGENCY_ALARM → 1.a` default only reflects the *general
+  emergency alarm* row correctly; other pinned-Emergency-Alarm paths
+  (anything besides the general/muster-list case) technically ought
+  to use `2` per the real table, not `1.a`.
+- **Within the Alarm tier, the code also depends on function**:
+  fire-detection-related alarms use `2`; most everything else
+  (machinery, steering gear, control system fault, bilge, engineers',
+  personnel, cargo, gas detection except chlorine, watertight door
+  fault) uses a plain `3` — i.e. one of the `3.a`–`3.d` waveforms,
+  used to distinguish between several simultaneous Alarm-tier
+  conditions from each other, not to signal severity. This plugin's
+  `ALARM → 2` default reflects the fire-detection case, not the more
+  common machinery-alarm case.
+
+None of this is fixable by a flat priority→tone table, because the
+standard's own assignment isn't organized by priority in the first
+place — it's organized by alarm function, which this plugin has no
+concept of (only Signal K notification paths and MSC.302(87)
+priority). Fixing it properly would mean introducing a function-type
+concept (e.g. tagging a path or override as "fire-related") so
+Alarm/Emergency-Alarm-tier paths could pick between `2` and `3.x`
+the way the real table does — deliberately not done here; the
+per-priority defaults above are a known, documented simplification,
+overridable per-path via `messageOverrides`/a manual `toneCode` in
+`test-announce`, or via `musterListCodes` for a fully custom pattern.
+
 **Full scope implemented** — 1.a, 1.b, 2, and 3.a–3.d are all in
 scope, including 1.b ship-specific muster-list codes even though
 Signal K has no native source of truth for a muster list. Structure

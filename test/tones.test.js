@@ -7,7 +7,7 @@ const { resolveToneCode, resolveClipPath, resolveMusterClipPath, TONE_CODE, clip
 const { PRIORITY } = require('../lib/priority')
 
 test('resolveToneCode falls back to the priority default with no muster override', () => {
-  assert.equal(resolveToneCode(PRIORITY.CAUTION, 'notifications.foo', []), TONE_CODE.SQUARE_PULSE)
+  assert.equal(resolveToneCode(PRIORITY.CAUTION, 'notifications.foo', []), TONE_CODE.CLUSTERED_PULSES)
   assert.equal(resolveToneCode(PRIORITY.EMERGENCY_ALARM, 'notifications.mob', []), TONE_CODE.GENERAL_EMERGENCY)
 })
 
