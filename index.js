@@ -94,6 +94,42 @@ module.exports = function (app) {
           }
         }
       },
+      cautionTone: {
+        type: 'object',
+        title:
+          'Caution-priority tone (no IMO A.1021(26) table basis for this priority - fully your choice)',
+        properties: {
+          preset: {
+            type: 'string',
+            title: 'Built-in pattern, or "custom" to use the pattern field below',
+            enum: ['1a', '2', '3a', '3b', '3c', '3d', 'custom'],
+            default: '3c'
+          },
+          pattern: {
+            type: 'string',
+            title:
+              'Custom pattern (used when preset = "custom"): space-separated <freqHz>:<durationMs> tokens, e.g. "500:1000 0:250 2000:1000" (freq 0 = silence)'
+          }
+        }
+      },
+      warningTone: {
+        type: 'object',
+        title:
+          'Warning-priority tone (no IMO A.1021(26) table basis for this priority - fully your choice)',
+        properties: {
+          preset: {
+            type: 'string',
+            title: 'Built-in pattern, or "custom" to use the pattern field below',
+            enum: ['1a', '2', '3a', '3b', '3c', '3d', 'custom'],
+            default: '3a'
+          },
+          pattern: {
+            type: 'string',
+            title:
+              'Custom pattern (used when preset = "custom"): space-separated <freqHz>:<durationMs> tokens, e.g. "500:1000 0:250 2000:1000" (freq 0 = silence)'
+          }
+        }
+      },
       musterListCodes: {
         type: 'array',
         title: 'IMO A.1021(26) 1.b ship-specific muster-list tone patterns',
@@ -172,7 +208,9 @@ module.exports = function (app) {
       pinnedEmergencyAlarmPaths: o.pinnedEmergencyAlarmPaths || ['notifications.mob'],
       messageOverrides: o.messageOverrides || [],
       pronunciationSubstitutions: o.pronunciationSubstitutions || [],
-      musterListCodes: o.musterListCodes || []
+      musterListCodes: o.musterListCodes || [],
+      cautionTone: { preset: o.cautionTone?.preset || '3c', pattern: o.cautionTone?.pattern || '' },
+      warningTone: { preset: o.warningTone?.preset || '3a', pattern: o.warningTone?.pattern || '' }
     }
   }
 
@@ -232,8 +270,15 @@ module.exports = function (app) {
 
   let currentTonePlayback = null
 
+  function priorityToneConfig () {
+    return {
+      [PRIORITY.CAUTION]: config.cautionTone,
+      [PRIORITY.WARNING]: config.warningTone
+    }
+  }
+
   async function announce (entry) {
-    const clipPath = resolveClipPath(entry.priority, entry.path, config.musterListCodes)
+    const clipPath = resolveClipPath(entry.priority, entry.path, config.musterListCodes, priorityToneConfig())
     await playAnnouncement({ clipPath, message: entry.message, language: config.language })
   }
 
@@ -303,7 +348,7 @@ module.exports = function (app) {
         } else if (code && code !== 'none') {
           clipPath = clipPathFor(code)
         } else if (priority) {
-          clipPath = resolveClipPath(Number(priority), '__test__', [])
+          clipPath = resolveClipPath(Number(priority), '__test__', [], priorityToneConfig())
         } else {
           res.status(400).json({ error: 'expected a code, pattern, or priority query param' })
           return
@@ -340,7 +385,7 @@ module.exports = function (app) {
         } else if (toneCode) {
           clipPath = clipPathFor(toneCode)
         } else {
-          clipPath = resolveClipPath(priority, '__test__', [])
+          clipPath = resolveClipPath(priority, '__test__', [], priorityToneConfig())
         }
       } catch (err) {
         res.status(400).json({ error: `invalid tone pattern: ${err.message}` })

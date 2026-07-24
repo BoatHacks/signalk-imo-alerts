@@ -253,10 +253,19 @@ concept of (only Signal K notification paths and MSC.302(87)
 priority). Fixing it properly would mean introducing a function-type
 concept (e.g. tagging a path or override as "fire-related") so
 Alarm/Emergency-Alarm-tier paths could pick between `2` and `3.x`
-the way the real table does — deliberately not done here; the
-per-priority defaults above are a known, documented simplification,
-overridable per-path via `messageOverrides`/a manual `toneCode` in
-`test-announce`, or via `musterListCodes` for a fully custom pattern.
+the way the real table does — deliberately not done here.
+
+Since Caution and Warning have no Table 7.2 basis at all, their
+default tones are made **fully user-configurable** in `plugin.schema`
+(`cautionTone` / `warningTone`): each is either a preset built-in code
+(`1a`/`2`/`3a`/`3b`/`3c`/`3d`) or a free custom pattern (same
+`"<freqHz>:<durationMs> ..."` text format as `musterListCodes`),
+resolved in `lib/tones.js`'s `resolveClipPath`. Alarm and Emergency
+Alarm are not configurable this way — their defaults (`2` and `1.a`
+respectively) at least partially reflect real table rows, even if not
+perfectly, so they stay fixed for now; per-path overrides remain
+available for those via `messageOverrides`/`musterListCodes` or a
+manual `toneCode`/`tonePattern` in `test-announce`.
 
 **Full scope implemented** — 1.a, 1.b, 2, and 3.a–3.d are all in
 scope, including 1.b ship-specific muster-list codes even though

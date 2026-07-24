@@ -30,6 +30,10 @@ Early scaffold. Implemented so far:
 - 1.b ship-specific muster-list codes: entered as a text pattern
   (`"<freqHz>:<durationMs> ..."`), parsed and synthesized once per
   distinct pattern, then cached (`lib/tonePattern.js`, `lib/tones.js`)
+- Caution/Warning tones are fully user-configurable (`cautionTone` /
+  `warningTone` in `plugin.schema`): pick a built-in preset or supply
+  a free custom pattern, since neither priority has any IMO A.1021(26)
+  table basis in the first place
 - Plugin wiring, `plugin.schema`, REST endpoints
   (`/active`, `/options`, `/tone-clip`, `/test-announce`,
   `/acknowledge`, `/silence`), and a full test-mode webapp: a form

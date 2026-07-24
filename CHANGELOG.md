@@ -5,6 +5,16 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `cautionTone` and `warningTone` plugin config options: since Caution
+  and Warning have no IMO A.1021(26) table basis at all (see below),
+  their tones are now fully user-configurable - pick a built-in preset
+  (`1a`/`2`/`3a`/`3b`/`3c`/`3d`) or supply a free custom pattern (same
+  text format as `musterListCodes`). Resolved in `lib/tones.js`'s
+  `resolveClipPath`, which now takes an optional per-priority tone
+  config and falls back to the built-in default when none is set.
+
 ### Documentation
 
 - Cited IMO MSC.48(66) (LSA Code) §7.2.1.1 as the actual source of the

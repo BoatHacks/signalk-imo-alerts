@@ -41,3 +41,34 @@ test('resolveClipPath uses the muster pattern clip when a path override matches'
   ])
   assert.equal(clip, resolveMusterClipPath(pattern))
 })
+
+test('resolveClipPath uses a configured preset override for Caution/Warning', () => {
+  const clip = resolveClipPath(PRIORITY.CAUTION, 'notifications.foo', [], {
+    [PRIORITY.CAUTION]: { preset: '3d' }
+  })
+  assert.equal(clip, clipPathFor('3d'))
+})
+
+test('resolveClipPath uses a configured custom pattern override for Caution/Warning', () => {
+  const pattern = '700:200 0:100'
+  const clip = resolveClipPath(PRIORITY.WARNING, 'notifications.foo', [], {
+    [PRIORITY.WARNING]: { preset: 'custom', pattern }
+  })
+  assert.equal(clip, resolveMusterClipPath(pattern))
+})
+
+test('a muster-list path override still wins over a priority tone config override', () => {
+  const musterPattern = '500:100 0:50 2000:100'
+  const clip = resolveClipPath(
+    PRIORITY.WARNING,
+    'notifications.fire.engineRoom',
+    [{ path: 'notifications.fire.engineRoom', pattern: musterPattern }],
+    { [PRIORITY.WARNING]: { preset: '3d' } }
+  )
+  assert.equal(clip, resolveMusterClipPath(musterPattern))
+})
+
+test('resolveClipPath falls back to the built-in default when no override is configured', () => {
+  const clip = resolveClipPath(PRIORITY.CAUTION, 'notifications.foo', [], {})
+  assert.equal(clip, clipPathFor(TONE_CODE.CLUSTERED_PULSES)) // Caution's current default, see lib/tones.js
+})
