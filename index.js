@@ -3,7 +3,7 @@
 const fs = require('fs')
 const path = require('path')
 const { resolvePriority, shouldVoice, PRIORITY, priorityName } = require('./lib/priority')
-const { resolveMessage } = require('./lib/templates')
+const { resolveMessage, applyPronunciation } = require('./lib/templates')
 const { AlertQueue } = require('./lib/alertQueue')
 const { speak } = require('./lib/tts')
 const {
@@ -395,7 +395,11 @@ module.exports = function (app) {
           path: m.path,
           zone: m.zone || null,
           pattern: m.pattern
-        }))
+        })),
+        // exposed so the webapp's browser-side (Web Speech API) preview
+        // of a typed test message matches what server-side TTS would
+        // actually say - see public/app.js
+        pronunciationSubstitutions: config.pronunciationSubstitutions
       })
     })
 
@@ -455,7 +459,10 @@ module.exports = function (app) {
       // respond immediately - server-side playback happens asynchronously
       // and shouldn't hold the HTTP request open
       res.json({ ok: true })
-      playAnnouncement({ clipPath, message: message || null, language }).catch((err) =>
+      const spokenMessage = message
+        ? applyPronunciation(message, config.pronunciationSubstitutions)
+        : null
+      playAnnouncement({ clipPath, message: spokenMessage, language }).catch((err) =>
         app.debug(`test-announce playback error: ${err}`)
       )
     })

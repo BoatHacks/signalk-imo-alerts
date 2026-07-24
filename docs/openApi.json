@@ -82,6 +82,17 @@
                           "pattern": { "type": "string" }
                         }
                       }
+                    },
+                    "pronunciationSubstitutions": {
+                      "type": "array",
+                      "description": "Configured pronunciation fixes, exposed so the webapp's browser-side Web Speech preview of a typed test message matches server-side TTS",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "pattern": { "type": "string" },
+                          "replacement": { "type": "string" }
+                        }
+                      }
                     }
                   }
                 }

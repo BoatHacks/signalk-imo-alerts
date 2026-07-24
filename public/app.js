@@ -67,6 +67,7 @@
   var toneDefaultHint = document.getElementById('tone-default-hint')
   var priorityConfigByValue = {}
   var musterPatternByValue = {}
+  var pronunciationSubstitutions = []
 
   fetch(BASE + '/options', { cache: 'no-store' })
     .then(function (res) { return res.json() })
@@ -93,6 +94,7 @@
         musterPatternByValue[value] = m.pattern
       })
       updateToneDefaultHint()
+      pronunciationSubstitutions = options.pronunciationSubstitutions || []
     })
     .catch(function (err) {
       console.error('signalk-imo-alerts: failed to fetch options', err)
@@ -198,6 +200,16 @@
       })
   }
 
+  function applyPronunciation (text) {
+    return pronunciationSubstitutions.reduce(function (acc, sub) {
+      try {
+        return acc.replace(new RegExp(sub.pattern, 'gi'), sub.replacement)
+      } catch (err) {
+        return acc // invalid user-supplied regex - skip rather than throw
+      }
+    }, text)
+  }
+
   document.getElementById('test-preview').addEventListener('click', function () {
     setStatus('')
     playToneInBrowser(currentSelection())
@@ -210,7 +222,7 @@
 
     // browser-side: play tone then speak, immediately
     playToneInBrowser(sel).then(function () {
-      speak(sel.message, sel.language)
+      speak(sel.message ? applyPronunciation(sel.message) : sel.message, sel.language)
     })
 
     // server-side (if enabled in plugin config, exercises the real

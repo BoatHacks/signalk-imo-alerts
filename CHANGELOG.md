@@ -52,6 +52,16 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- Pronunciation fixes (`pronunciationSubstitutions` in plugin config)
+  weren't applied to a test message typed into the webapp's test
+  mode - only real alerts went through the substitution table,
+  because `/test-announce` spoke the raw typed text directly instead
+  of running it through `applyPronunciation` (now exported from
+  `lib/templates.js`). Fixed both playback paths: server-side TTS
+  (`/test-announce`) and the webapp's immediate browser-side Web
+  Speech preview, which now fetches the configured substitutions via
+  `/options` and applies them itself before speaking.
+
 - The PUT handler for acknowledge/silence (`lib/ackListener.js`) used
   a Node-style error-first callback (`callback(null, result)`), but
   `signalk-server`'s `put.js` calls the handler's callback with a

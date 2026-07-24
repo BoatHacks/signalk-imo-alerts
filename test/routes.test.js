@@ -144,3 +144,24 @@ test('GET /options exposes configured musterListCodes', () => {
 
   plugin.stop()
 })
+
+test('GET /options exposes pronunciationSubstitutions for the webapp\'s browser-side preview', () => {
+  const app = makeFakeApp()
+  const router = makeFakeRouter()
+  const pluginFactory = require('../index.js')
+  const plugin = pluginFactory(app)
+  plugin.start({
+    pronunciationSubstitutions: [{ pattern: 'SOG', replacement: 'speed over ground' }]
+  })
+  plugin.registerWithRouter(router)
+
+  const req = {}
+  const res = makeFakeRes()
+  router._routes['GET /options'](req, res)
+
+  assert.deepEqual(res.body.pronunciationSubstitutions, [
+    { pattern: 'SOG', replacement: 'speed over ground' }
+  ])
+
+  plugin.stop()
+})

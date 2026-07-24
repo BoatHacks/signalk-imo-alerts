@@ -107,7 +107,13 @@ this plugin's own webapp specifically.
 - **Pronunciation substitution table**: a separate text-substitution
   step applied just before TTS, to fix terms `espeak-ng` is likely to
   mispronounce (path names, unit symbols, abbreviations like "SOG").
-  Kept separate from the message templates themselves.
+  Kept separate from the message templates themselves. Applied to
+  test-mode messages too (both server-side TTS and the webapp's
+  browser-side Web Speech preview) — a raw user-typed test message
+  goes through the same substitution table as a real alert's
+  resolved message, via `applyPronunciation` (exported from
+  `lib/templates.js`) server-side, and via `/options`'s exposed
+  `pronunciationSubstitutions` for the client-side preview.
 
 ## Playback
 
