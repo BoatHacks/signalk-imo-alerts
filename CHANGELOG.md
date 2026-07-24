@@ -7,6 +7,12 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- `GET /options`'s `toneCodes` now include a short human-readable
+  `description` per code (e.g. `3c` → "Clustered short pulses"),
+  sourced from a new `TONE_CODE_DESCRIPTION` map in `lib/tones.js`.
+  The test-mode webapp's tone dropdown shows it next to each option
+  (e.g. "3c - Clustered short pulses") instead of just the bare code.
+
 - One TTS engine (`espeak-ng`) now serves both local-speaker and
   browser playback, rather than two separate ones. `lib/tts.js`
   gained `synthesizeToFile()` (writes to a WAV file via `-w <path>`

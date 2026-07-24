@@ -13,6 +13,7 @@ const {
   resolveMusterClipPath,
   clipPathFor,
   TONE_CODE,
+  TONE_CODE_DESCRIPTION,
   play: playTone
 } = require('./lib/tones')
 const { createAckListener } = require('./lib/ackListener')
@@ -403,7 +404,7 @@ module.exports = function (app) {
         // pattern, entered separately (see tonePattern field/param).
         toneCodes: Object.values(TONE_CODE)
           .filter((code) => code !== TONE_CODE.SHIP_SPECIFIC)
-          .map((code) => ({ value: code, label: code })),
+          .map((code) => ({ value: code, label: code, description: TONE_CODE_DESCRIPTION[code] || null })),
         // musterListCodes configured in plugin config (1.b ship-specific
         // codes) - exposed so the test-mode webapp can offer them as
         // selectable tone options too, not just the built-in codes.

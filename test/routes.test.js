@@ -66,6 +66,7 @@ test('routes: /options, /tone-clip, /test-announce', async (t) => {
     assert.equal(res.body.priorities.length, 4)
     assert.ok(res.body.toneCodes.every((t) => t.value !== '1b'))
     assert.ok(res.body.toneCodes.some((t) => t.value === '1a'))
+    assert.ok(res.body.toneCodes.every((t) => typeof t.description === 'string' && t.description.length > 0))
   })
 
   await t.test('GET /options includes each priority\'s currently configured default tone', () => {

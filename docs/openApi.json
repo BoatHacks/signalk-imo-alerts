@@ -67,7 +67,8 @@
                         "type": "object",
                         "properties": {
                           "value": { "type": "string" },
-                          "label": { "type": "string" }
+                          "label": { "type": "string" },
+                          "description": { "type": "string", "description": "Short human-readable description, e.g. 'Square pulse train'" }
                         }
                       }
                     },

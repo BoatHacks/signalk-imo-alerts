@@ -148,7 +148,7 @@
       options.toneCodes.forEach(function (t) {
         var opt = document.createElement('option')
         opt.value = t.value
-        opt.textContent = t.label
+        opt.textContent = t.label + (t.description ? ' - ' + t.description : '')
         toneSelect.appendChild(opt)
       })
       options.musterListCodes.forEach(function (m, i) {
