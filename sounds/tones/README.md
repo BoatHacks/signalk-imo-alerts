@@ -29,6 +29,13 @@ consistency).
 per-installation from the `musterListCodes` plugin config, not generated
 here.
 
+Which of these codes plays by default for each priority (Caution/
+Warning/Alarm/Emergency alarm) is configurable in the plugin's own
+settings (`cautionTone`/`warningTone`/`alarmTone`/`emergencyAlarmTone`)
+- see docs/design.md, "Priority → default tone code mapping" for the
+current defaults and exactly which of them the standard actually
+supports.
+
 Regenerate with:
 
 ```sh

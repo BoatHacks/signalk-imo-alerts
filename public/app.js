@@ -64,6 +64,9 @@
   var languageInput = document.getElementById('test-language')
   var tonePlayer = document.getElementById('tone-player')
 
+  var toneDefaultHint = document.getElementById('tone-default-hint')
+  var priorityConfigByValue = {}
+
   fetch(BASE + '/options', { cache: 'no-store' })
     .then(function (res) { return res.json() })
     .then(function (options) {
@@ -72,6 +75,7 @@
         opt.value = p.value
         opt.textContent = p.label
         prioritySelect.appendChild(opt)
+        priorityConfigByValue[p.value] = p.configuredDefault
       })
       options.toneCodes.forEach(function (t) {
         var opt = document.createElement('option')
@@ -79,13 +83,33 @@
         opt.textContent = t.label
         toneSelect.appendChild(opt)
       })
+      updateToneDefaultHint()
     })
     .catch(function (err) {
       console.error('signalk-imo-alerts: failed to fetch options', err)
     })
 
+  function updateToneDefaultHint () {
+    if (toneSelect.value !== '') {
+      toneDefaultHint.textContent = ''
+      return
+    }
+    var def = priorityConfigByValue[Number(prioritySelect.value)]
+    if (!def) {
+      toneDefaultHint.textContent = ''
+      return
+    }
+    toneDefaultHint.textContent =
+      def.preset === 'custom'
+        ? '(currently: custom pattern "' + def.pattern + '")'
+        : '(currently: ' + def.preset + ')'
+  }
+
+  prioritySelect.addEventListener('change', updateToneDefaultHint)
+
   toneSelect.addEventListener('change', function () {
     patternRow.style.display = toneSelect.value === '__custom__' ? 'flex' : 'none'
+    updateToneDefaultHint()
   })
 
   function currentSelection () {

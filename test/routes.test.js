@@ -68,6 +68,17 @@ test('routes: /options, /tone-clip, /test-announce', async (t) => {
     assert.ok(res.body.toneCodes.some((t) => t.value === '1a'))
   })
 
+  await t.test('GET /options includes each priority\'s currently configured default tone', () => {
+    const req = {}
+    const res = makeFakeRes()
+    router._routes['GET /options'](req, res)
+    const byLabel = Object.fromEntries(res.body.priorities.map((p) => [p.label, p.configuredDefault]))
+    assert.equal(byLabel.Caution.preset, '3c')
+    assert.equal(byLabel.Warning.preset, '3a')
+    assert.equal(byLabel.Alarm.preset, '2')
+    assert.equal(byLabel['Emergency alarm'].preset, '1a')
+  })
+
   await t.test('GET /tone-clip?code=1a serves the built-in clip', () => {
     const req = { query: { code: '1a' } }
     const res = makeFakeRes()

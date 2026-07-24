@@ -157,15 +157,21 @@ configuration surface.
 - **REST endpoints**: `/test-announce` triggers a one-off test
   announcement combining any priority, tone (built-in code, custom
   pattern, or the priority's default), message, and language;
-  `/options` lists the available priorities and built-in tone codes;
-  `/tone-clip` serves a clip's raw audio (built-in, custom pattern,
-  or a priority's default) for browser playback. Similar in spirit
-  to `signalk-notification-dispatcher`'s `send-alert.sh`.
+  `/options` lists the available priorities (each with its
+  currently-configured default tone, so the UI can show what
+  "Priority default" actually resolves to right now) and built-in
+  tone codes; `/tone-clip` serves a clip's raw audio (built-in,
+  custom pattern, or a priority's default) for browser playback.
+  Similar in spirit to `signalk-notification-dispatcher`'s
+  `send-alert.sh`.
 - **Test mode** in the companion webapp: a form exposing all of the
   above as one combination — priority, tone selection (including a
   free-text pattern field for previewing a muster-list code before
   saving it to config), message, and language — with a "preview tone
-  only" button and a "play combination" button. Playback happens
+  only" button and a "play combination" button. Shows a live hint
+  next to the tone selector (e.g. "(currently: 3c)") reflecting the
+  selected priority's actual configured default, sourced from
+  `/options`. Playback happens
   both in the browser (via the `<audio>` element + Web Speech API,
   immediately) and server-side (via `/test-announce`, if server-side
   playback is enabled in plugin config) — so a muster-list pattern

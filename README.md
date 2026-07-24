@@ -40,8 +40,10 @@ Early scaffold. Implemented so far:
   combining priority/tone/custom-pattern/message/language, playing
   both in-browser and (if enabled) server-side
 
-Not yet done: CI verification against a real signalk-server instance,
-actual release/publish.
+Not yet done: automated CI verification against a real signalk-server
+instance (a manual live-server check was done once, ad hoc, and
+deliberately kept out of the repo/CI - see CHANGELOG.md); npm publish
+(v0.1.0 is tagged/released on GitHub, not yet on npm).
 
 ## Development
 
@@ -49,7 +51,7 @@ actual release/publish.
 npm test
 ```
 
-35 tests currently passing. To regenerate the built-in tone clips
+42 tests currently passing. To regenerate the built-in tone clips
 (`sounds/tones/*.wav`) after changing `scripts/generate_tones.py`:
 
 ```sh

@@ -49,7 +49,15 @@
                         "type": "object",
                         "properties": {
                           "value": { "type": "number" },
-                          "label": { "type": "string" }
+                          "label": { "type": "string" },
+                          "configuredDefault": {
+                            "type": "object",
+                            "description": "The currently configured default tone for this priority (cautionTone/warningTone/alarmTone/emergencyAlarmTone in plugin config)",
+                            "properties": {
+                              "preset": { "type": "string", "description": "Built-in code, or 'custom'" },
+                              "pattern": { "type": "string", "description": "Custom pattern, set when preset is 'custom'" }
+                            }
+                          }
                         }
                       }
                     },

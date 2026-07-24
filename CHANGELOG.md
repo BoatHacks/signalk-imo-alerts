@@ -7,6 +7,12 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- `GET /options` now includes each priority's currently-configured
+  default tone (`configuredDefault`: `{ preset, pattern }`), sourced
+  from the new `cautionTone`/`warningTone`/`alarmTone`/
+  `emergencyAlarmTone` config. The test-mode webapp uses this to show
+  a live hint next to the tone selector (e.g. "(currently: 3c)") so
+  "Priority default" isn't a black box.
 - `cautionTone`, `warningTone`, `alarmTone`, and `emergencyAlarmTone`
   plugin config options: every priority's default tone is now fully
   user-configurable - pick a built-in preset (`1a`/`2`/`3a`/`3b`/`3c`/
@@ -83,8 +89,6 @@ follows [Keep a Changelog](https://keepachangelog.com/).
   which the server calls itself and always mounts at
   `/plugins/<id>/`, matching what `signalk-notification-dispatcher`
   and the other plugins already do correctly.
-
-
 
 ### Changed
 

@@ -370,9 +370,18 @@ module.exports = function (app) {
     })
 
     router.get('/options', (req, res) => {
+      const toneConfig = priorityToneConfig()
       res.json({
         priorities: [PRIORITY.CAUTION, PRIORITY.WARNING, PRIORITY.ALARM, PRIORITY.EMERGENCY_ALARM].map(
-          (value) => ({ value, label: priorityName(value) })
+          (value) => ({
+            value,
+            label: priorityName(value),
+            // the currently configured default for this priority (see
+            // cautionTone/warningTone/alarmTone/emergencyAlarmTone in
+            // plugin.schema) - lets the webapp show what "Priority
+            // default" actually resolves to right now
+            configuredDefault: toneConfig[value]
+          })
         ),
         // 1b (SHIP_SPECIFIC) isn't listed as a fixed code - it needs a
         // pattern, entered separately (see tonePattern field/param).
