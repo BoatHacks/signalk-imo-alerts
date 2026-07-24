@@ -5,8 +5,9 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
-Not yet released or published to npm. Everything below has landed on
-`main` but no tagged release exists yet.
+## [0.1.0] - 2026-07-24
+
+Not yet published to npm.
 
 ### Added
 
@@ -61,4 +62,5 @@ See `docs/design.md` for the full rationale on each of these:
 - Tone and voice share a single silence/acknowledge state, per IEC's
   own BAM mariner guidance.
 
-[Unreleased]: https://github.com/BoatHacks/signalk-imo-alerts/compare/ca20682...HEAD
+[Unreleased]: https://github.com/BoatHacks/signalk-imo-alerts/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/BoatHacks/signalk-imo-alerts/releases/tag/v0.1.0
