@@ -5,6 +5,25 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The webapp spoke real active alerts (from `notifications.*`) but
+  never played their tone first - `renderActive()` only ever fetched
+  `/voice-clip`, `/tone-clip` was never wired into that path at all
+  (only test mode called it). Fixed: real alerts now fetch and play
+  `/tone-clip` before `/voice-clip`, same tone-then-voice sequencing
+  as everywhere else.
+
+  Fixing this surfaced a second, subtler bug: `/tone-clip`'s
+  priority-only lookup resolved `musterListCodes` overrides against a
+  placeholder path (`'__test__'`) that could never match a real
+  notification path, so even once wired up, a muster-list-tagged
+  alert would have gotten the generic priority default instead of its
+  configured pattern. `/tone-clip` now accepts an optional `path`
+  parameter for this, and the webapp passes the alert's actual path.
+  Verified against a real signalk-server instance for both the
+  muster-override and generic-default cases (byte-identical clips).
+
 ### Added
 
 - `GET /options`'s `toneCodes` now include a short human-readable

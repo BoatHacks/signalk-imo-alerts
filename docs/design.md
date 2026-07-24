@@ -163,11 +163,15 @@ was judged more important than voice naturalness.
 webapp's test-mode form can default to what's actually configured.
 `/test-announce` and `/voice-clip` both accept a per-call `voice`
 override, for trying a different voice without changing the saved
-config. Real (non-test) browser-side speech for active alerts uses
-the configured `language`/`serverVoice` the same way, fetching
-`/voice-clip` for the notification's already-resolved message (see
-below on pronunciation substitution) rather than reprocessing it
-client-side.
+config. Real (non-test) browser-side playback for active alerts
+plays tone then voice, same sequencing as everywhere else: it fetches
+`/tone-clip?priority=<priority>&path=<path>` (the `path` matters —
+without it, a muster-list path's tone override would be invisible to
+the browser and it would hear the generic priority default instead;
+`/tone-clip` resolves `path` against `musterListCodes` the same way
+`announce()` does server-side), then `/voice-clip` for the
+notification's already-resolved message (see below on pronunciation
+substitution) rather than reprocessing it client-side.
 
 **Pronunciation substitution and double-substitution**: `/voice-clip`
 deliberately does **not** apply `pronunciationSubstitutions` itself —

@@ -60,7 +60,7 @@ deliberately kept out of the repo/CI - see CHANGELOG.md); npm publish
 npm test
 ```
 
-54 tests currently passing. To regenerate the built-in tone clips
+56 tests currently passing. To regenerate the built-in tone clips
 (`sounds/tones/*.wav`) after changing `scripts/generate_tones.py`:
 
 ```sh

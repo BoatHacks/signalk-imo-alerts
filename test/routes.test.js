@@ -123,6 +123,51 @@ test('routes: /options, /tone-clip, /test-announce', async (t) => {
   })
 })
 
+test('GET /tone-clip?priority=X&path=Y picks up a matching musterListCodes override (not just the priority default)', () => {
+  const app = makeFakeApp()
+  const router = makeFakeRouter()
+  const pluginFactory = require('../index.js')
+  const plugin = pluginFactory(app)
+  const musterPattern = '2000:500 0:200'
+  plugin.start({
+    musterListCodes: [{ path: 'notifications.fire.engineRoom', zone: 'Engine Room', pattern: musterPattern }]
+  })
+  plugin.registerWithRouter(router)
+
+  const { resolveMusterClipPath } = require('../lib/tones')
+  const { PRIORITY } = require('../lib/priority')
+
+  const req = { query: { priority: String(PRIORITY.WARNING), path: 'notifications.fire.engineRoom' } }
+  const res = makeFakeRes()
+  router._routes['GET /tone-clip'](req, res)
+
+  assert.equal(res.sentFile, path.resolve(resolveMusterClipPath(musterPattern)))
+
+  plugin.stop()
+})
+
+test('GET /tone-clip?priority=X&path=Y falls back to the priority default when no muster override matches that path', () => {
+  const app = makeFakeApp()
+  const router = makeFakeRouter()
+  const pluginFactory = require('../index.js')
+  const plugin = pluginFactory(app)
+  plugin.start({
+    musterListCodes: [{ path: 'notifications.fire.engineRoom', zone: 'Engine Room', pattern: '2000:500 0:200' }]
+  })
+  plugin.registerWithRouter(router)
+
+  const { clipPathFor } = require('../lib/tones')
+  const { PRIORITY } = require('../lib/priority')
+
+  const req = { query: { priority: String(PRIORITY.WARNING), path: 'notifications.tanks.fuel.0' } }
+  const res = makeFakeRes()
+  router._routes['GET /tone-clip'](req, res)
+
+  assert.equal(res.sentFile, path.resolve(clipPathFor('3a'))) // Warning's default preset
+
+  plugin.stop()
+})
+
 test('GET /options exposes configured musterListCodes', () => {
   const app = makeFakeApp()
   const router = makeFakeRouter()

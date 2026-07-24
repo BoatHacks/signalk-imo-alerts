@@ -73,6 +73,7 @@
   // --- Active alerts table ---------------------------------------------------
 
   var liveVoicePlayer = document.getElementById('live-voice-player')
+  var liveTonePlayer = document.getElementById('live-tone-player')
 
   function fetchActive () {
     fetch(BASE + '/active', { cache: 'no-store' })
@@ -84,6 +85,13 @@
       .catch(function (err) {
         console.error('signalk-imo-alerts: failed to fetch active alerts', err)
       })
+  }
+
+  function toneClipUrlForAlert (a) {
+    var params = new URLSearchParams()
+    params.set('priority', String(a.priority))
+    params.set('path', a.path)
+    return BASE + '/tone-clip?' + params.toString()
   }
 
   function renderActive (alerts) {
@@ -101,14 +109,18 @@
       var key = a.path + '|' + a.message
       if (a.state === 'unacknowledged' && !spokenPaths.has(key)) {
         spokenPaths.add(key)
-        // a.message is already pronunciation-substituted server-side
-        // (resolveMessage) - play it as-is, no client-side reprocessing
-        if (a.message) {
-          fetchAndPlay(
-            voiceClipUrl(a.message, configuredVoice.language, configuredVoice.serverVoice),
-            liveVoicePlayer
-          )
-        }
+        // tone first, then voice - same sequencing as server-side
+        // announce() and test mode (see docs/design.md, "Sequencing")
+        fetchAndPlay(toneClipUrlForAlert(a), liveTonePlayer).then(function () {
+          // a.message is already pronunciation-substituted server-side
+          // (resolveMessage) - play it as-is, no client-side reprocessing
+          if (a.message) {
+            return fetchAndPlay(
+              voiceClipUrl(a.message, configuredVoice.language, configuredVoice.serverVoice),
+              liveVoicePlayer
+            )
+          }
+        })
       }
       if (a.state !== 'unacknowledged') {
         spokenPaths.delete(key)

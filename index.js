@@ -424,7 +424,7 @@ module.exports = function (app) {
     })
 
     router.get('/tone-clip', (req, res) => {
-      const { code, pattern, priority } = req.query
+      const { code, pattern, priority, path: notificationPath } = req.query
       try {
         let clipPath
         if (pattern) {
@@ -432,7 +432,12 @@ module.exports = function (app) {
         } else if (code && code !== 'none') {
           clipPath = clipPathFor(code)
         } else if (priority) {
-          clipPath = resolveClipPath(Number(priority), '__test__', [], priorityToneConfig())
+          clipPath = resolveClipPath(
+            Number(priority),
+            notificationPath || '__test__',
+            config.musterListCodes,
+            priorityToneConfig()
+          )
         } else {
           res.status(400).json({ error: 'expected a code, pattern, or priority query param' })
           return

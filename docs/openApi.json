@@ -106,7 +106,8 @@
         "parameters": [
           { "name": "code", "in": "query", "schema": { "type": "string" }, "description": "Built-in tone code, e.g. '1a'" },
           { "name": "pattern", "in": "query", "schema": { "type": "string" }, "description": "Custom '<freqHz>:<durationMs> ...' pattern" },
-          { "name": "priority", "in": "query", "schema": { "type": "number" }, "description": "Priority to use its default tone" }
+          { "name": "priority", "in": "query", "schema": { "type": "number" }, "description": "Priority to use its default tone" },
+          { "name": "path", "in": "query", "schema": { "type": "string" }, "description": "Notification path, used alongside priority to check for a matching musterListCodes override before falling back to the priority's default - without this, a muster-list path's configured tone would be invisible to a priority-only lookup" }
         ],
         "responses": {
           "200": { "description": "audio/wav clip" },
