@@ -20,9 +20,10 @@ see docs/design.md, "Clip production".
 7.2 (0.5-2.0 Hz pulse rate, 500 Hz baseline, 2000 Hz maximum; 1.0 Hz was
 chosen as this plugin's own implementation value within that range).
 Table 7.2 does not specify a carrier frequency for 1.a/2 (it describes
-the ship's-horn blast *pattern*, not a tone) - the 1000 Hz / 800 Hz used
-there are this plugin's own synthesis choices, not values from the
-standard.
+the ship's-horn blast *pattern*, not a tone) - the 500 Hz used for both
+is this plugin's own synthesis choice, not a value from the standard
+(chosen to match Table 7.2's own 500 Hz baseline for 3.a-3.d, for
+consistency).
 
 `1b` (ship-specific muster-list codes) has no fixed clip - it's resolved
 per-installation from the `musterListCodes` plugin config, not generated

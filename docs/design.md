@@ -251,10 +251,11 @@ actually specifies (0.5–2.0 Hz, 500 Hz baseline, 2000 Hz maximum;
 1.0 Hz was chosen within that range as this plugin's own
 implementation value). Table 7.2 does **not** specify a carrier
 frequency for 1.a/2 — it describes the ship's-horn blast *pattern*
-(7 short + 1 prolonged, or continuous), not a tone — so the 1000 Hz /
-800 Hz used for those two are this plugin's own synthesis choices,
-not values taken from the standard. See `sounds/tones/README.md` for
-the generated files.
+(7 short + 1 prolonged, or continuous), not a tone — so the 500 Hz
+used for both is this plugin's own synthesis choice, not a value
+taken from either standard (chosen to match Table 7.2's own 500 Hz
+baseline for the 3.a–3.d waveforms, for consistency). See
+`sounds/tones/README.md` for the generated files.
 
 ## Explicitly out of scope (for now)
 

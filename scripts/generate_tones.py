@@ -18,8 +18,9 @@ not in A.1021(26) itself: "seven or more short blasts followed by one
 long blast." This script uses exactly seven (the stated minimum).
 Neither document specifies a carrier frequency for codes 1.a/2 (they
 describe the ship's actual horn/klaxon blast pattern, not a tone), so
-the 1000 Hz / 800 Hz used for those two are this plugin's own
-synthesis choices, not values taken from either standard.
+the 500 Hz used for both is this plugin's own synthesis choice, not a
+value taken from either standard (chosen to match Table 7.2's own
+500 Hz baseline for the 3.a-3.d waveforms, for consistency).
 
 1.b (ship-specific muster-list codes) has no fixed clip - resolved
 per-installation from plugin config - so it isn't generated here.
@@ -73,9 +74,9 @@ def generate_1a():
     blasts followed by one long blast")."""
     samples = []
     for _ in range(7):
-        samples += tone(1000, 0.5)
+        samples += tone(500, 0.5)
         samples += silence(0.3)
-    samples += tone(1000, 2.0)
+    samples += tone(500, 2.0)
     return samples
 
 
@@ -83,7 +84,7 @@ def generate_2():
     """Continuous tone (played once per announce cycle; repeat scheduling
     in lib/alertQueue.js handles re-triggering until acknowledged/silenced,
     per MSC.302(87)'s own model)."""
-    return tone(800, 3.0)
+    return tone(500, 3.0)
 
 
 def generate_3a():

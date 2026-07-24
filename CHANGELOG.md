@@ -15,6 +15,14 @@ follows [Keep a Changelog](https://keepachangelog.com/).
   support for the tone-then-voice sequencing decision, not just this
   plugin's own inference.
 
+### Changed
+
+- Reduced the 1.a/2 carrier frequency from 1000/800 Hz to 500 Hz
+  (both), matching Table 7.2's own 500 Hz baseline used for the
+  3.a–3.d waveforms. Regenerated `sounds/tones/1a.wav` and `2.wav`.
+  Still this plugin's own synthesis choice — neither MSC.48(66) nor
+  A.1021(26) specifies a carrier frequency for 1.a/2.
+
 ## [0.1.0] - 2026-07-24
 
 Not yet published to npm.
