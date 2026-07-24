@@ -37,8 +37,9 @@ Early scaffold. Implemented so far:
 - Plugin wiring, `plugin.schema`, REST endpoints
   (`/active`, `/options`, `/tone-clip`, `/test-announce`,
   `/acknowledge`, `/silence`), and a full test-mode webapp: a form
-  combining priority/tone/custom-pattern/message/language, playing
-  both in-browser and (if enabled) server-side
+  combining priority/tone/custom-pattern/message/language (including
+  every configured `musterListCodes` entry as a one-click tone
+  option), playing both in-browser and (if enabled) server-side
 
 Not yet done: automated CI verification against a real signalk-server
 instance (a manual live-server check was done once, ad hoc, and
@@ -51,7 +52,7 @@ deliberately kept out of the repo/CI - see CHANGELOG.md); npm publish
 npm test
 ```
 
-42 tests currently passing. To regenerate the built-in tone clips
+43 tests currently passing. To regenerate the built-in tone clips
 (`sounds/tones/*.wav`) after changing `scripts/generate_tones.py`:
 
 ```sh

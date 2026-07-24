@@ -66,6 +66,7 @@
 
   var toneDefaultHint = document.getElementById('tone-default-hint')
   var priorityConfigByValue = {}
+  var musterPatternByValue = {}
 
   fetch(BASE + '/options', { cache: 'no-store' })
     .then(function (res) { return res.json() })
@@ -83,6 +84,14 @@
         opt.textContent = t.label
         toneSelect.appendChild(opt)
       })
+      options.musterListCodes.forEach(function (m, i) {
+        var value = 'muster:' + i
+        var opt = document.createElement('option')
+        opt.value = value
+        opt.textContent = '1.b: ' + (m.zone || m.path)
+        toneSelect.appendChild(opt)
+        musterPatternByValue[value] = m.pattern
+      })
       updateToneDefaultHint()
     })
     .catch(function (err) {
@@ -90,6 +99,10 @@
     })
 
   function updateToneDefaultHint () {
+    if (toneSelect.value.indexOf('muster:') === 0) {
+      toneDefaultHint.textContent = '(pattern: "' + musterPatternByValue[toneSelect.value] + '")'
+      return
+    }
     if (toneSelect.value !== '') {
       toneDefaultHint.textContent = ''
       return
@@ -115,10 +128,11 @@
   function currentSelection () {
     var toneValue = toneSelect.value
     var isCustom = toneValue === '__custom__'
+    var isMuster = toneValue.indexOf('muster:') === 0
     return {
       priority: Number(prioritySelect.value),
-      toneCode: isCustom || toneValue === '' ? undefined : toneValue,
-      tonePattern: isCustom ? patternInput.value : undefined,
+      toneCode: isCustom || isMuster || toneValue === '' ? undefined : toneValue,
+      tonePattern: isCustom ? patternInput.value : isMuster ? musterPatternByValue[toneValue] : undefined,
       message: messageInput.value || undefined,
       language: languageInput.value || undefined
     }

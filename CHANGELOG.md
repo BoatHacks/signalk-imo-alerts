@@ -7,6 +7,11 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- `GET /options` now also lists configured `musterListCodes` entries
+  (path/zone/pattern), and the test-mode webapp offers each as a
+  one-click tone option (labeled by zone/role) alongside the built-in
+  codes and free-text custom pattern - no need to retype a
+  muster-list pattern to preview it.
 - `GET /options` now includes each priority's currently-configured
   default tone (`configuredDefault`: `{ preset, pattern }`), sourced
   from the new `cautionTone`/`warningTone`/`alarmTone`/

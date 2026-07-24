@@ -159,18 +159,22 @@ configuration surface.
   pattern, or the priority's default), message, and language;
   `/options` lists the available priorities (each with its
   currently-configured default tone, so the UI can show what
-  "Priority default" actually resolves to right now) and built-in
-  tone codes; `/tone-clip` serves a clip's raw audio (built-in,
-  custom pattern, or a priority's default) for browser playback.
+  "Priority default" actually resolves to right now), built-in
+  tone codes, and configured `musterListCodes` entries; `/tone-clip`
+  serves a clip's raw audio (built-in, custom pattern, or a
+  priority's default) for browser playback.
   Similar in spirit to `signalk-notification-dispatcher`'s
   `send-alert.sh`.
 - **Test mode** in the companion webapp: a form exposing all of the
-  above as one combination — priority, tone selection (including a
-  free-text pattern field for previewing a muster-list code before
-  saving it to config), message, and language — with a "preview tone
+  above as one combination — priority, tone selection (built-in
+  codes, a free-text pattern field for previewing an arbitrary
+  pattern before saving it to config, **and every configured
+  `musterListCodes` entry, listed by zone/role for one-click
+  selection**), message, and language — with a "preview tone
   only" button and a "play combination" button. Shows a live hint
-  next to the tone selector (e.g. "(currently: 3c)") reflecting the
-  selected priority's actual configured default, sourced from
+  next to the tone selector (e.g. "(currently: 3c)" for a priority
+  default, or "(pattern: ...)" for a selected muster-list entry)
+  reflecting what's actually configured/selected, sourced from
   `/options`. Playback happens
   both in the browser (via the `<audio>` element + Web Speech API,
   immediately) and server-side (via `/test-announce`, if server-side

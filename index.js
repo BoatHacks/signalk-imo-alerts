@@ -387,7 +387,15 @@ module.exports = function (app) {
         // pattern, entered separately (see tonePattern field/param).
         toneCodes: Object.values(TONE_CODE)
           .filter((code) => code !== TONE_CODE.SHIP_SPECIFIC)
-          .map((code) => ({ value: code, label: code }))
+          .map((code) => ({ value: code, label: code })),
+        // musterListCodes configured in plugin config (1.b ship-specific
+        // codes) - exposed so the test-mode webapp can offer them as
+        // selectable tone options too, not just the built-in codes.
+        musterListCodes: config.musterListCodes.map((m) => ({
+          path: m.path,
+          zone: m.zone || null,
+          pattern: m.pattern
+        }))
       })
     })
 

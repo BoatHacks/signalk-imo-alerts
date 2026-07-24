@@ -121,3 +121,26 @@ test('routes: /options, /tone-clip, /test-announce', async (t) => {
     assert.equal(res.statusCode, 400)
   })
 })
+
+test('GET /options exposes configured musterListCodes', () => {
+  const app = makeFakeApp()
+  const router = makeFakeRouter()
+  const pluginFactory = require('../index.js')
+  const plugin = pluginFactory(app)
+  plugin.start({
+    musterListCodes: [
+      { path: 'notifications.fire.engineRoom', zone: 'Engine Room fire party', pattern: '2000:500 0:200' }
+    ]
+  })
+  plugin.registerWithRouter(router)
+
+  const req = {}
+  const res = makeFakeRes()
+  router._routes['GET /options'](req, res)
+
+  assert.deepEqual(res.body.musterListCodes, [
+    { path: 'notifications.fire.engineRoom', zone: 'Engine Room fire party', pattern: '2000:500 0:200' }
+  ])
+
+  plugin.stop()
+})

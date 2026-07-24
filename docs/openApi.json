@@ -70,6 +70,18 @@
                           "label": { "type": "string" }
                         }
                       }
+                    },
+                    "musterListCodes": {
+                      "type": "array",
+                      "description": "Configured 1.b ship-specific muster-list codes (plugin config), offered as additional selectable tone options",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "path": { "type": "string" },
+                          "zone": { "type": ["string", "null"] },
+                          "pattern": { "type": "string" }
+                        }
+                      }
                     }
                   }
                 }
