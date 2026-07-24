@@ -7,6 +7,26 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- `serverVoice` and `browserVoice` plugin config options: TTS voice is
+  now configurable separately for server-side (`espeak-ng` voice/
+  variant, e.g. `en-us`, `en+f3`) and browser-side (a Web Speech API
+  voice name) playback, since the two use entirely unrelated
+  voice-naming schemes. `language` still exists as the semantic
+  language tag (browser `lang` attribute, and the `espeak-ng` voice
+  fallback when `serverVoice` is unset). `lib/tts.js`'s `speak()` now
+  takes an explicit `voice` parameter, taking precedence over
+  `language`. `/options` exposes the configured
+  `{ language, serverVoice, browserVoice }`; `/test-announce` accepts
+  a per-call `voice` override. The webapp's test-mode form gained a
+  "Server voice" text input and a "Browser voice" dropdown populated
+  live from the browser's own `speechSynthesis.getVoices()` (which
+  varies by browser/OS/device and can't be known server-side),
+  pre-selecting the configured browser voice when present in that
+  list. Real (non-test) active-alert browser speech now also uses the
+  configured language/browserVoice instead of browser defaults.
+  Covered by new `test/tts.test.js` and an addition to
+  `test/routes.test.js`.
+
 - `GET /options` now also lists configured `musterListCodes` entries
   (path/zone/pattern), and the test-mode webapp offers each as a
   one-click tone option (labeled by zone/role) alongside the built-in

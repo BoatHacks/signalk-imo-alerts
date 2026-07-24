@@ -68,6 +68,20 @@
       </div>
 
       <div class="row">
+        <label for="test-server-voice">Server voice</label>
+        <input id="test-server-voice" type="text" placeholder="e.g. en-us, en+f3" size="20" />
+      </div>
+      <small>Blank uses the plugin's configured server voice (or the language above if none is set). Run <code>espeak-ng --voices</code> on the Signal K host to list available ones.</small>
+
+      <div class="row">
+        <label for="test-browser-voice">Browser voice</label>
+        <select id="test-browser-voice">
+          <option value="">Plugin default / browser default</option>
+        </select>
+      </div>
+      <small>Voices available on <em>this</em> browser/device only - the plugin's configured browser voice (if it matches one below) is preselected.</small>
+
+      <div class="row">
         <button type="button" id="test-preview">Preview tone only</button>
         <button type="submit">Play combination</button>
       </div>

@@ -93,6 +93,15 @@
                           "replacement": { "type": "string" }
                         }
                       }
+                    },
+                    "voice": {
+                      "type": "object",
+                      "description": "Configured voice/language settings, so the webapp can default its test-mode voice fields to what's actually configured",
+                      "properties": {
+                        "language": { "type": "string" },
+                        "serverVoice": { "type": "string", "description": "espeak-ng voice/variant" },
+                        "browserVoice": { "type": "string", "description": "Web Speech API voice name" }
+                      }
                     }
                   }
                 }
@@ -119,7 +128,7 @@
     },
     "/plugins/signalk-imo-alerts/test-announce": {
       "post": {
-        "summary": "Manually trigger a test announcement, combining any priority/tone/message/language (for verifying pronunciation, volume, and tone selection before trusting it live)",
+        "summary": "Manually trigger a test announcement, combining any priority/tone/message/language/voice (for verifying pronunciation, volume, tone selection, and voice model before trusting it live)",
         "requestBody": {
           "required": true,
           "content": {
@@ -132,7 +141,8 @@
                   "message": { "type": "string" },
                   "toneCode": { "type": "string", "description": "Built-in code, or 'none'; omit to use the priority's default" },
                   "tonePattern": { "type": "string", "description": "Custom pattern, overrides toneCode if given" },
-                  "language": { "type": "string" }
+                  "language": { "type": "string" },
+                  "voice": { "type": "string", "description": "espeak-ng voice/variant override, e.g. 'en-us'; overrides the configured serverVoice/language for this announcement only" }
                 }
               }
             }

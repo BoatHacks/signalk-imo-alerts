@@ -124,6 +124,36 @@ this plugin's own webapp specifically.
   dashboard open.
 - Both are independently configurable (on/off).
 
+### Voice selection
+
+Server-side and browser-side TTS use entirely different voice-naming
+schemes, so each gets its own config option rather than sharing one:
+
+- **`language`**: a semantic language tag (e.g. `en`, `de`), used as
+  the browser's `SpeechSynthesisUtterance.lang` and, server-side, as
+  the `espeak-ng` voice if `serverVoice` isn't set.
+- **`serverVoice`**: an explicit `espeak-ng` voice/variant (e.g.
+  `en-us`, `en+f3`, `en-gb-x-rp` — run `espeak-ng --voices` on the
+  host to list what's actually installed). Takes precedence over
+  `language` when set (`lib/tts.js`'s `speak()`).
+- **`browserVoice`**: a voice *name* matching one reported by the
+  browser's Web Speech API (`speechSynthesis.getVoices()`) on
+  whichever device opens the companion webapp. This can't be
+  validated or even enumerated server-side — available voices vary
+  by browser/OS/device, sometimes loading asynchronously
+  (`voiceschanged` event) rather than being present on first read.
+
+`/options` exposes the configured `{ language, serverVoice,
+browserVoice }` so the webapp's test-mode form can default to what's
+actually configured rather than leaving the fields blank, and its
+browser-voice dropdown is populated live from whatever
+`speechSynthesis.getVoices()` reports on that specific device,
+pre-selecting the configured `browserVoice` if it's present in that
+list. `/test-announce` also accepts a per-call `voice` override, for
+trying a different voice without changing the saved config. Real
+(non-test) browser-side speech for active alerts uses the configured
+`language`/`browserVoice` the same way.
+
 ## Repeat behavior
 
 Configurable repeat interval, defaulting to **30 seconds** — this

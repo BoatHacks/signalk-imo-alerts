@@ -145,6 +145,27 @@ test('GET /options exposes configured musterListCodes', () => {
   plugin.stop()
 })
 
+test('GET /options exposes configured voice/language settings', () => {
+  const app = makeFakeApp()
+  const router = makeFakeRouter()
+  const pluginFactory = require('../index.js')
+  const plugin = pluginFactory(app)
+  plugin.start({ language: 'de', serverVoice: 'de+f3', browserVoice: 'Google Deutsch' })
+  plugin.registerWithRouter(router)
+
+  const req = {}
+  const res = makeFakeRes()
+  router._routes['GET /options'](req, res)
+
+  assert.deepEqual(res.body.voice, {
+    language: 'de',
+    serverVoice: 'de+f3',
+    browserVoice: 'Google Deutsch'
+  })
+
+  plugin.stop()
+})
+
 test('GET /options exposes pronunciationSubstitutions for the webapp\'s browser-side preview', () => {
   const app = makeFakeApp()
   const router = makeFakeRouter()

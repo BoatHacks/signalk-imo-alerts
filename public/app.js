@@ -6,6 +6,7 @@
 
   var BASE = '/plugins/signalk-imo-alerts'
   var spokenPaths = new Set()
+  var configuredVoice = { language: '', serverVoice: '', browserVoice: '' }
 
   // --- Active alerts table -------------------------------------------------
 
@@ -36,7 +37,7 @@
       var key = a.path + '|' + a.message
       if (a.state === 'unacknowledged' && !spokenPaths.has(key)) {
         spokenPaths.add(key)
-        speak(a.message)
+        speak(a.message, configuredVoice.language, configuredVoice.browserVoice)
       }
       if (a.state !== 'unacknowledged') {
         spokenPaths.delete(key)
@@ -44,10 +45,16 @@
     })
   }
 
-  function speak (text, language) {
+  function speak (text, language, voiceName) {
     if (!window.speechSynthesis || !text) return
     var utterance = new SpeechSynthesisUtterance(text)
     if (language) utterance.lang = language
+    if (voiceName) {
+      var match = window.speechSynthesis.getVoices().filter(function (v) {
+        return v.name === voiceName
+      })[0]
+      if (match) utterance.voice = match
+    }
     window.speechSynthesis.speak(utterance)
   }
 
@@ -62,6 +69,8 @@
   var patternInput = document.getElementById('test-pattern')
   var messageInput = document.getElementById('test-message')
   var languageInput = document.getElementById('test-language')
+  var serverVoiceInput = document.getElementById('test-server-voice')
+  var browserVoiceSelect = document.getElementById('test-browser-voice')
   var tonePlayer = document.getElementById('tone-player')
 
   var toneDefaultHint = document.getElementById('tone-default-hint')
@@ -95,10 +104,38 @@
       })
       updateToneDefaultHint()
       pronunciationSubstitutions = options.pronunciationSubstitutions || []
+      configuredVoice = options.voice || configuredVoice
+      languageInput.placeholder = configuredVoice.language || 'en'
+      serverVoiceInput.placeholder = configuredVoice.serverVoice || '(language above)'
+      populateBrowserVoices()
     })
     .catch(function (err) {
       console.error('signalk-imo-alerts: failed to fetch options', err)
     })
+
+  function populateBrowserVoices () {
+    if (!window.speechSynthesis) return
+    var voices = window.speechSynthesis.getVoices()
+    if (voices.length === 0) return // some browsers load voices async - see voiceschanged below
+    // avoid duplicating options if this runs more than once (voiceschanged
+    // can fire after an initial non-empty read too, in some browsers)
+    while (browserVoiceSelect.options.length > 1) {
+      browserVoiceSelect.remove(1)
+    }
+    voices.forEach(function (v) {
+      var opt = document.createElement('option')
+      opt.value = v.name
+      opt.textContent = v.name + ' (' + v.lang + ')'
+      browserVoiceSelect.appendChild(opt)
+    })
+    if (configuredVoice.browserVoice && voices.some(function (v) { return v.name === configuredVoice.browserVoice })) {
+      browserVoiceSelect.value = configuredVoice.browserVoice
+    }
+  }
+
+  if (window.speechSynthesis) {
+    window.speechSynthesis.addEventListener('voiceschanged', populateBrowserVoices)
+  }
 
   function updateToneDefaultHint () {
     if (toneSelect.value.indexOf('muster:') === 0) {
@@ -136,7 +173,9 @@
       toneCode: isCustom || isMuster || toneValue === '' ? undefined : toneValue,
       tonePattern: isCustom ? patternInput.value : isMuster ? musterPatternByValue[toneValue] : undefined,
       message: messageInput.value || undefined,
-      language: languageInput.value || undefined
+      language: languageInput.value || undefined,
+      voice: serverVoiceInput.value || undefined,
+      browserVoice: browserVoiceSelect.value || configuredVoice.browserVoice || undefined
     }
   }
 
@@ -222,7 +261,11 @@
 
     // browser-side: play tone then speak, immediately
     playToneInBrowser(sel).then(function () {
-      speak(sel.message ? applyPronunciation(sel.message) : sel.message, sel.language)
+      speak(
+        sel.message ? applyPronunciation(sel.message) : sel.message,
+        sel.language || configuredVoice.language,
+        sel.browserVoice
+      )
     })
 
     // server-side (if enabled in plugin config, exercises the real

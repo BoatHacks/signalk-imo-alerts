@@ -38,8 +38,18 @@ module.exports = function (app) {
       enabled: { type: 'boolean', title: 'Enabled', default: true },
       language: {
         type: 'string',
-        title: 'Voice language (espeak-ng voice code)',
+        title: 'Message language (used as the espeak-ng voice if "Server voice" below is unset, and as the browser Web Speech language tag)',
         default: 'en'
+      },
+      serverVoice: {
+        type: 'string',
+        title:
+          'Server-side TTS voice/model (espeak-ng voice or variant, e.g. "en-us", "en+f3", "en-gb-x-rp" - run `espeak-ng --voices` on the host to list available ones). Defaults to the language field above if left blank.'
+      },
+      browserVoice: {
+        type: 'string',
+        title:
+          'Browser-side TTS voice (must match a voice name reported by the browser\'s Web Speech API on whichever device opens the companion webapp, e.g. "Google UK English Female" - this varies by browser/OS, check the webapp\'s test mode for the list available on your device). Falls back to the browser\'s default voice for the message language if left blank or not found.'
       },
       playback: {
         type: 'object',
@@ -233,6 +243,8 @@ module.exports = function (app) {
     return {
       enabled: o.enabled !== false,
       language: o.language || 'en',
+      serverVoice: o.serverVoice || '',
+      browserVoice: o.browserVoice || '',
       playback: {
         server: o.playback?.server !== false,
         browser: o.playback?.browser !== false
@@ -322,7 +334,12 @@ module.exports = function (app) {
 
   async function announce (entry) {
     const clipPath = resolveClipPath(entry.priority, entry.path, config.musterListCodes, priorityToneConfig())
-    await playAnnouncement({ clipPath, message: entry.message, language: config.language })
+    await playAnnouncement({
+      clipPath,
+      message: entry.message,
+      language: config.language,
+      voice: config.serverVoice
+    })
   }
 
   /**
@@ -330,7 +347,7 @@ module.exports = function (app) {
    * server-side. Used both for real alerts (via the queue) and for
    * one-off test/demo playback (see /test-announce).
    */
-  async function playAnnouncement ({ clipPath, message, language }) {
+  async function playAnnouncement ({ clipPath, message, language, voice }) {
     if (config.playback.server && clipPath) {
       currentTonePlayback = playTone(clipPath)
       const toneResult = await currentTonePlayback.promise
@@ -341,7 +358,10 @@ module.exports = function (app) {
     }
 
     if (config.playback.server && message) {
-      const result = await speak(message, { language: language || config.language })
+      const result = await speak(message, {
+        language: language || config.language,
+        voice: voice || config.serverVoice || undefined
+      })
       if (!result.spoken) {
         app.debug(`espeak-ng unavailable, falling back to browser playback: ${result.reason}`)
       }
@@ -399,7 +419,15 @@ module.exports = function (app) {
         // exposed so the webapp's browser-side (Web Speech API) preview
         // of a typed test message matches what server-side TTS would
         // actually say - see public/app.js
-        pronunciationSubstitutions: config.pronunciationSubstitutions
+        pronunciationSubstitutions: config.pronunciationSubstitutions,
+        // configured voice/language settings, so the webapp can default
+        // its test-mode voice fields to whatever's actually configured
+        // rather than leaving them blank
+        voice: {
+          language: config.language,
+          serverVoice: config.serverVoice,
+          browserVoice: config.browserVoice
+        }
       })
     })
 
@@ -434,7 +462,7 @@ module.exports = function (app) {
     })
 
     router.post('/test-announce', (req, res) => {
-      const { priority, message, toneCode, tonePattern, language } = req.body || {}
+      const { priority, message, toneCode, tonePattern, language, voice } = req.body || {}
       if (typeof priority !== 'number') {
         res.status(400).json({ error: 'expected { priority: number, ... }' })
         return
@@ -462,7 +490,7 @@ module.exports = function (app) {
       const spokenMessage = message
         ? applyPronunciation(message, config.pronunciationSubstitutions)
         : null
-      playAnnouncement({ clipPath, message: spokenMessage, language }).catch((err) =>
+      playAnnouncement({ clipPath, message: spokenMessage, language, voice }).catch((err) =>
         app.debug(`test-announce playback error: ${err}`)
       )
     })
