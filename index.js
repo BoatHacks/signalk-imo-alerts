@@ -1,11 +1,13 @@
 'use strict'
 
 const fs = require('fs')
+const os = require('os')
+const crypto = require('crypto')
 const path = require('path')
 const { resolvePriority, shouldVoice, PRIORITY, priorityName } = require('./lib/priority')
 const { resolveMessage, applyPronunciation } = require('./lib/templates')
 const { AlertQueue } = require('./lib/alertQueue')
-const { speak } = require('./lib/tts')
+const { speak, synthesizeToFile } = require('./lib/tts')
 const {
   resolveClipPath,
   resolveMusterClipPath,
@@ -38,18 +40,13 @@ module.exports = function (app) {
       enabled: { type: 'boolean', title: 'Enabled', default: true },
       language: {
         type: 'string',
-        title: 'Message language (used as the espeak-ng voice if "Server voice" below is unset, and as the browser Web Speech language tag)',
+        title: 'Message language (used as the espeak-ng voice if "Voice" below is unset)',
         default: 'en'
       },
       serverVoice: {
         type: 'string',
         title:
-          'Server-side TTS voice/model (espeak-ng voice or variant, e.g. "en-us", "en+f3", "en-gb-x-rp" - run `espeak-ng --voices` on the host to list available ones). Defaults to the language field above if left blank.'
-      },
-      browserVoice: {
-        type: 'string',
-        title:
-          'Browser-side TTS voice (must match a voice name reported by the browser\'s Web Speech API on whichever device opens the companion webapp, e.g. "Google UK English Female" - this varies by browser/OS, check the webapp\'s test mode for the list available on your device). Falls back to the browser\'s default voice for the message language if left blank or not found.'
+          'TTS voice/model (espeak-ng voice or variant, e.g. "en-us", "en+f3", "en-gb-x-rp" - run `espeak-ng --voices` on the host to list available ones), used for both local-speaker and browser playback - the browser plays the exact same rendered audio the server would speak, rather than using its own separate voice. Defaults to the language field above if left blank.'
       },
       playback: {
         type: 'object',
@@ -244,7 +241,6 @@ module.exports = function (app) {
       enabled: o.enabled !== false,
       language: o.language || 'en',
       serverVoice: o.serverVoice || '',
-      browserVoice: o.browserVoice || '',
       playback: {
         server: o.playback?.server !== false,
         browser: o.playback?.browser !== false
@@ -416,17 +412,12 @@ module.exports = function (app) {
           zone: m.zone || null,
           pattern: m.pattern
         })),
-        // exposed so the webapp's browser-side (Web Speech API) preview
-        // of a typed test message matches what server-side TTS would
-        // actually say - see public/app.js
-        pronunciationSubstitutions: config.pronunciationSubstitutions,
         // configured voice/language settings, so the webapp can default
         // its test-mode voice fields to whatever's actually configured
         // rather than leaving them blank
         voice: {
           language: config.language,
-          serverVoice: config.serverVoice,
-          browserVoice: config.browserVoice
+          serverVoice: config.serverVoice
         }
       })
     })
@@ -461,6 +452,42 @@ module.exports = function (app) {
       }
     })
 
+    router.get('/voice-clip', async (req, res) => {
+      const { message, language, voice } = req.query
+      if (!message) {
+        res.status(400).json({ error: 'expected a message query param' })
+        return
+      }
+
+      // synthesized fresh per request (not cached) - message text is
+      // usually dynamic (interpolated values), unlike the fixed set of
+      // tone patterns - see lib/tts.js, synthesizeToFile. Deliberately
+      // does NOT apply pronunciationSubstitutions itself: a real alert's
+      // message (from /active) is already substituted once via
+      // resolveMessage, and re-applying here would risk double
+      // substitution - callers needing substitution (test mode) get the
+      // already-substituted text back from /test-announce instead.
+      const tmpPath = path.join(os.tmpdir(), `signalk-imo-alerts-voice-${crypto.randomUUID()}.wav`)
+      const result = await synthesizeToFile(message, tmpPath, {
+        language: language || config.language,
+        voice: voice || config.serverVoice || undefined
+      })
+
+      if (!result.synthesized) {
+        res.status(503).json({ error: `speech synthesis unavailable: ${result.reason}` })
+        return
+      }
+
+      res.type('audio/wav')
+      res.sendFile(path.resolve(tmpPath), (err) => {
+        if (err && !res.headersSent) {
+          app.debug(`voice-clip sendFile error: ${err.message}`)
+          res.status(500).json({ error: 'failed to send clip' })
+        }
+        fs.unlink(tmpPath, () => {}) // best-effort cleanup, not cached
+      })
+    })
+
     router.post('/test-announce', (req, res) => {
       const { priority, message, toneCode, tonePattern, language, voice } = req.body || {}
       if (typeof priority !== 'number') {
@@ -485,11 +512,14 @@ module.exports = function (app) {
       }
 
       // respond immediately - server-side playback happens asynchronously
-      // and shouldn't hold the HTTP request open
-      res.json({ ok: true })
+      // and shouldn't hold the HTTP request open. spokenMessage is
+      // included so the webapp's browser-side preview can play the exact
+      // same pronunciation-substituted text via /voice-clip, without
+      // duplicating the substitution logic client-side.
       const spokenMessage = message
         ? applyPronunciation(message, config.pronunciationSubstitutions)
         : null
+      res.json({ ok: true, spokenMessage })
       playAnnouncement({ clipPath, message: spokenMessage, language, voice }).catch((err) =>
         app.debug(`test-announce playback error: ${err}`)
       )

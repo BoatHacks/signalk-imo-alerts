@@ -7,25 +7,32 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
-- `serverVoice` and `browserVoice` plugin config options: TTS voice is
-  now configurable separately for server-side (`espeak-ng` voice/
-  variant, e.g. `en-us`, `en+f3`) and browser-side (a Web Speech API
-  voice name) playback, since the two use entirely unrelated
-  voice-naming schemes. `language` still exists as the semantic
-  language tag (browser `lang` attribute, and the `espeak-ng` voice
-  fallback when `serverVoice` is unset). `lib/tts.js`'s `speak()` now
-  takes an explicit `voice` parameter, taking precedence over
-  `language`. `/options` exposes the configured
-  `{ language, serverVoice, browserVoice }`; `/test-announce` accepts
-  a per-call `voice` override. The webapp's test-mode form gained a
-  "Server voice" text input and a "Browser voice" dropdown populated
-  live from the browser's own `speechSynthesis.getVoices()` (which
-  varies by browser/OS/device and can't be known server-side),
-  pre-selecting the configured browser voice when present in that
-  list. Real (non-test) active-alert browser speech now also uses the
-  configured language/browserVoice instead of browser defaults.
-  Covered by new `test/tts.test.js` and an addition to
-  `test/routes.test.js`.
+- One TTS engine (`espeak-ng`) now serves both local-speaker and
+  browser playback, rather than two separate ones. `lib/tts.js`
+  gained `synthesizeToFile()` (writes to a WAV file via `-w <path>`
+  instead of speaking to the local device), and a new
+  `GET /voice-clip` endpoint serves it on demand - not cached, since
+  message text is usually dynamic (interpolated values), unlike the
+  fixed set of tone patterns; the same pattern `/tone-clip` already
+  uses for tones. The webapp's test mode and real active-alert
+  playback both fetch and play this instead of using the browser's
+  own separate Web Speech API voices - genuinely identical audio
+  everywhere, not just "the same engine nominally." New `serverVoice`
+  plugin config option (an `espeak-ng` voice/variant, e.g. `en-us`,
+  `en+f3`) used for both. `/options` exposes the configured
+  `{ language, serverVoice }`; `/test-announce` and `/voice-clip`
+  both accept a per-call `voice` override, and `/test-announce` now
+  returns the pronunciation-substituted `spokenMessage` in its
+  response so the browser preview can use exactly that text without
+  duplicating substitution logic client-side (`pronunciationSubstitutions`
+  is no longer exposed via `/options` at all - substitution now lives
+  in exactly one place). Covered by new `test/tts.test.js` and
+  additions to `test/routes.test.js`.
+
+  Trade-off worth noting: `espeak-ng` is formant-synthesis and sounds
+  more robotic than modern browser/OS TTS voices - this trades voice
+  naturalness for guaranteed consistency, which seemed like the right
+  call for a safety-alert plugin. See docs/design.md, "Playback".
 
 - `GET /options` now also lists configured `musterListCodes` entries
   (path/zone/pattern), and the test-mode webapp offers each as a

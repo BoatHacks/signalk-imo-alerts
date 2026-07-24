@@ -108,51 +108,78 @@ this plugin's own webapp specifically.
   step applied just before TTS, to fix terms `espeak-ng` is likely to
   mispronounce (path names, unit symbols, abbreviations like "SOG").
   Kept separate from the message templates themselves. Applied to
-  test-mode messages too (both server-side TTS and the webapp's
-  browser-side Web Speech preview) — a raw user-typed test message
-  goes through the same substitution table as a real alert's
-  resolved message, via `applyPronunciation` (exported from
-  `lib/templates.js`) server-side, and via `/options`'s exposed
-  `pronunciationSubstitutions` for the client-side preview.
+  test-mode messages too, via `applyPronunciation` (exported from
+  `lib/templates.js`) inside `/test-announce`, which returns the
+  substituted `spokenMessage` for the webapp's browser preview to use
+  — see "Voice selection" below for why substitution lives in exactly
+  one place rather than being duplicated client-side.
 
 ## Playback
 
-- Server-side: Node process driving `espeak-ng`. If `espeak-ng` is
-  missing or fails, the plugin falls back to browser-only playback
-  and logs a clear warning rather than failing silently.
-- Browser-side: companion webapp, for whichever device has the
-  dashboard open.
+Both server-side and browser-side playback are driven by a single
+TTS engine (`espeak-ng`), not two separate ones:
+
+- **Server-side (local speaker)**: a Node process spawns `espeak-ng`
+  directly, speaking through whatever audio device the Signal K host
+  has (`lib/tts.js`, `speak()`). If `espeak-ng` is missing or fails,
+  the plugin falls back to browser-only playback and logs a clear
+  warning rather than failing silently.
+- **Browser-side (companion webapp)**: rather than using the
+  browser's own separate Web Speech API voices, the browser fetches
+  and plays the *exact same rendered audio* the server would speak —
+  `espeak-ng` synthesizes to a WAV file (`lib/tts.js`,
+  `synthesizeToFile()`, using `-w <path>` instead of playing to the
+  speaker) and `GET /voice-clip` serves it, the same pattern
+  `/tone-clip` already uses for tones. Not cached: unlike the fixed
+  set of tone patterns, message text is usually dynamic (interpolated
+  values change per occurrence), so each request synthesizes fresh
+  to a temp file that's deleted right after being sent.
 - Both are independently configurable (on/off).
+
+This was a deliberate simplification from an earlier design that gave
+server and browser their own separate voice settings (`serverVoice`
++ a browser-specific `browserVoice` matching whatever
+`speechSynthesis.getVoices()` happened to report on a given device).
+One engine means genuinely identical audio everywhere, no
+voice-enumeration/`voiceschanged` complexity in the webapp, and no
+risk of the browser's (often more natural-sounding, neural) voice
+silently drifting from what the local speaker actually says. The
+trade-off is real, not free: `espeak-ng` is formant-synthesis and
+sounds noticeably more robotic than modern browser/OS TTS — but for
+a safety-alert plugin, "sounds identical and predictable everywhere"
+was judged more important than voice naturalness.
 
 ### Voice selection
 
-Server-side and browser-side TTS use entirely different voice-naming
-schemes, so each gets its own config option rather than sharing one:
-
 - **`language`**: a semantic language tag (e.g. `en`, `de`), used as
-  the browser's `SpeechSynthesisUtterance.lang` and, server-side, as
   the `espeak-ng` voice if `serverVoice` isn't set.
 - **`serverVoice`**: an explicit `espeak-ng` voice/variant (e.g.
   `en-us`, `en+f3`, `en-gb-x-rp` — run `espeak-ng --voices` on the
   host to list what's actually installed). Takes precedence over
-  `language` when set (`lib/tts.js`'s `speak()`).
-- **`browserVoice`**: a voice *name* matching one reported by the
-  browser's Web Speech API (`speechSynthesis.getVoices()`) on
-  whichever device opens the companion webapp. This can't be
-  validated or even enumerated server-side — available voices vary
-  by browser/OS/device, sometimes loading asynchronously
-  (`voiceschanged` event) rather than being present on first read.
+  `language` when set. Used for *both* local-speaker and browser
+  playback, since it's the same engine either way.
 
-`/options` exposes the configured `{ language, serverVoice,
-browserVoice }` so the webapp's test-mode form can default to what's
-actually configured rather than leaving the fields blank, and its
-browser-voice dropdown is populated live from whatever
-`speechSynthesis.getVoices()` reports on that specific device,
-pre-selecting the configured `browserVoice` if it's present in that
-list. `/test-announce` also accepts a per-call `voice` override, for
-trying a different voice without changing the saved config. Real
-(non-test) browser-side speech for active alerts uses the configured
-`language`/`browserVoice` the same way.
+`/options` exposes the configured `{ language, serverVoice }` so the
+webapp's test-mode form can default to what's actually configured.
+`/test-announce` and `/voice-clip` both accept a per-call `voice`
+override, for trying a different voice without changing the saved
+config. Real (non-test) browser-side speech for active alerts uses
+the configured `language`/`serverVoice` the same way, fetching
+`/voice-clip` for the notification's already-resolved message (see
+below on pronunciation substitution) rather than reprocessing it
+client-side.
+
+**Pronunciation substitution and double-substitution**: `/voice-clip`
+deliberately does **not** apply `pronunciationSubstitutions` itself —
+a real alert's message (from `/active`) has already been substituted
+once, server-side, via `resolveMessage` when it was first queued;
+re-applying at `/voice-clip` time would risk substituting twice for
+that path. Test-mode messages are raw, so `/test-announce` computes
+and returns the substituted `spokenMessage` in its response, and the
+webapp uses that (not the raw typed text) for its `/voice-clip`
+browser preview — substitution logic lives in exactly one place,
+`lib/templates.js`'s `applyPronunciation`, rather than being
+duplicated client-side.
 
 ## Repeat behavior
 
@@ -192,31 +219,33 @@ configuration surface.
 
 - **REST endpoints**: `/test-announce` triggers a one-off test
   announcement combining any priority, tone (built-in code, custom
-  pattern, or the priority's default), message, and language;
-  `/options` lists the available priorities (each with its
-  currently-configured default tone, so the UI can show what
-  "Priority default" actually resolves to right now), built-in
-  tone codes, and configured `musterListCodes` entries; `/tone-clip`
-  serves a clip's raw audio (built-in, custom pattern, or a
-  priority's default) for browser playback.
-  Similar in spirit to `signalk-notification-dispatcher`'s
-  `send-alert.sh`.
+  pattern, or the priority's default), message, language, and voice
+  (returning the pronunciation-substituted `spokenMessage` for the
+  browser to preview); `/options` lists the available priorities
+  (each with its currently-configured default tone, so the UI can
+  show what "Priority default" actually resolves to right now),
+  built-in tone codes, configured `musterListCodes` entries, and the
+  configured `{ language, serverVoice }`; `/tone-clip` serves a
+  tone's raw audio (built-in, custom pattern, or a priority's
+  default); `/voice-clip` synthesizes and serves a message's raw
+  audio on demand (not cached — see "Playback" above). Similar in
+  spirit to `signalk-notification-dispatcher`'s `send-alert.sh`.
 - **Test mode** in the companion webapp: a form exposing all of the
   above as one combination — priority, tone selection (built-in
   codes, a free-text pattern field for previewing an arbitrary
   pattern before saving it to config, **and every configured
   `musterListCodes` entry, listed by zone/role for one-click
-  selection**), message, and language — with a "preview tone
+  selection**), message, language, and voice — with a "preview tone
   only" button and a "play combination" button. Shows a live hint
   next to the tone selector (e.g. "(currently: 3c)" for a priority
   default, or "(pattern: ...)" for a selected muster-list entry)
   reflecting what's actually configured/selected, sourced from
-  `/options`. Playback happens
-  both in the browser (via the `<audio>` element + Web Speech API,
-  immediately) and server-side (via `/test-announce`, if server-side
+  `/options`. Playback happens both in the browser (fetching
+  `/tone-clip` and `/voice-clip`, the same audio the server would
+  produce) and server-side (via `/test-announce`, if server-side
   playback is enabled in plugin config) — so a muster-list pattern
-  can be checked from a laptop before trusting it to whatever the
-  Signal K host is actually wired to.
+  or message can be checked from a laptop before trusting it to
+  whatever the Signal K host is actually wired to.
 
 ## Alert tone patterns (IMO A.1021(26))
 

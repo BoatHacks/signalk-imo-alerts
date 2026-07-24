@@ -34,15 +34,18 @@ Early scaffold. Implemented so far:
   user-configurable (`cautionTone` / `warningTone` / `alarmTone` /
   `emergencyAlarmTone` in `plugin.schema`): pick a built-in preset or
   supply a free custom pattern per priority
-- TTS voice is configurable separately for server-side (`serverVoice`,
-  an `espeak-ng` voice/variant) and browser-side (`browserVoice`, a
-  Web Speech API voice name) - the two use entirely different
-  voice-naming schemes, so each gets its own setting (`lib/tts.js`,
-  `index.js`, `public/app.js`)
+- One TTS engine (`espeak-ng`) serves both local-speaker and browser
+  playback: the browser fetches and plays the exact same rendered
+  audio the server would speak, via `GET /voice-clip` (not cached -
+  message text is dynamic, unlike tones), the same pattern
+  `/tone-clip` uses for tones. Voice configurable via `language` +
+  `serverVoice` (`lib/tts.js`'s `synthesizeToFile`, `index.js`,
+  `public/app.js`)
 - Plugin wiring, `plugin.schema`, REST endpoints
-  (`/active`, `/options`, `/tone-clip`, `/test-announce`,
-  `/acknowledge`, `/silence`), and a full test-mode webapp: a form
-  combining priority/tone/custom-pattern/message/language (including
+  (`/active`, `/options`, `/tone-clip`, `/voice-clip`,
+  `/test-announce`, `/acknowledge`, `/silence`), and a full
+  test-mode webapp: a form combining priority/tone/custom-pattern/
+  message/language/voice (including
   every configured `musterListCodes` entry as a one-click tone
   option), playing both in-browser and (if enabled) server-side
 
@@ -57,7 +60,7 @@ deliberately kept out of the repo/CI - see CHANGELOG.md); npm publish
 npm test
 ```
 
-49 tests currently passing. To regenerate the built-in tone clips
+54 tests currently passing. To regenerate the built-in tone clips
 (`sounds/tones/*.wav`) after changing `scripts/generate_tones.py`:
 
 ```sh

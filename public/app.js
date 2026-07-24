@@ -1,14 +1,78 @@
-// No external dependencies - nothing to vendor. Uses the browser's native
-// Web Speech API and <audio> element for browser-side playback (see
-// docs/design.md, "Playback").
+// No external dependencies - nothing to vendor. One TTS engine
+// (espeak-ng, server-side) serves both local-speaker and browser
+// playback: the browser fetches and plays the exact same rendered audio
+// the server would speak, via /voice-clip - same pattern /tone-clip
+// already uses for tones (see docs/design.md, "Voice selection").
 (function () {
   'use strict'
 
   var BASE = '/plugins/signalk-imo-alerts'
   var spokenPaths = new Set()
-  var configuredVoice = { language: '', serverVoice: '', browserVoice: '' }
+  var configuredVoice = { language: '', serverVoice: '' }
 
-  // --- Active alerts table -------------------------------------------------
+  // --- shared blob-fetch-and-play helper ------------------------------------
+
+  var objectUrls = {} // keyed by audio element id, so each element tracks its own
+
+  function fetchAndPlay (url, audioEl, onStatus) {
+    return fetch(url, { cache: 'no-store' })
+      .then(function (res) {
+        if (!res.ok) {
+          return res
+            .json()
+            .catch(function () {
+              return {}
+            })
+            .then(function (body) {
+              throw new Error('HTTP ' + res.status + (body.error ? ': ' + body.error : ''))
+            })
+        }
+        return res.blob()
+      })
+      .then(function (blob) {
+        return new Promise(function (resolve) {
+          var prior = objectUrls[audioEl.id]
+          if (prior) URL.revokeObjectURL(prior)
+          var objectUrl = URL.createObjectURL(blob)
+          objectUrls[audioEl.id] = objectUrl
+          audioEl.src = objectUrl
+          audioEl.onended = resolve
+          audioEl.onerror = function () {
+            if (onStatus) {
+              onStatus(
+                'Loaded but the browser could not play it (' +
+                  (audioEl.error ? audioEl.error.message : 'unknown error') +
+                  ').'
+              )
+            }
+            resolve()
+          }
+          var playPromise = audioEl.play()
+          if (playPromise && playPromise.catch) {
+            playPromise.catch(function (err) {
+              if (onStatus) onStatus('Browser blocked playback: ' + err.message)
+              resolve()
+            })
+          }
+        })
+      })
+      .catch(function (err) {
+        console.error('signalk-imo-alerts: failed to load clip from ' + url, err)
+        if (onStatus) onStatus('Failed to load clip from ' + url + ' - ' + err.message)
+      })
+  }
+
+  function voiceClipUrl (message, language, voice) {
+    var params = new URLSearchParams()
+    params.set('message', message)
+    if (language) params.set('language', language)
+    if (voice) params.set('voice', voice)
+    return BASE + '/voice-clip?' + params.toString()
+  }
+
+  // --- Active alerts table ---------------------------------------------------
+
+  var liveVoicePlayer = document.getElementById('live-voice-player')
 
   function fetchActive () {
     fetch(BASE + '/active', { cache: 'no-store' })
@@ -37,25 +101,19 @@
       var key = a.path + '|' + a.message
       if (a.state === 'unacknowledged' && !spokenPaths.has(key)) {
         spokenPaths.add(key)
-        speak(a.message, configuredVoice.language, configuredVoice.browserVoice)
+        // a.message is already pronunciation-substituted server-side
+        // (resolveMessage) - play it as-is, no client-side reprocessing
+        if (a.message) {
+          fetchAndPlay(
+            voiceClipUrl(a.message, configuredVoice.language, configuredVoice.serverVoice),
+            liveVoicePlayer
+          )
+        }
       }
       if (a.state !== 'unacknowledged') {
         spokenPaths.delete(key)
       }
     })
-  }
-
-  function speak (text, language, voiceName) {
-    if (!window.speechSynthesis || !text) return
-    var utterance = new SpeechSynthesisUtterance(text)
-    if (language) utterance.lang = language
-    if (voiceName) {
-      var match = window.speechSynthesis.getVoices().filter(function (v) {
-        return v.name === voiceName
-      })[0]
-      if (match) utterance.voice = match
-    }
-    window.speechSynthesis.speak(utterance)
   }
 
   setInterval(fetchActive, 2000)
@@ -69,14 +127,13 @@
   var patternInput = document.getElementById('test-pattern')
   var messageInput = document.getElementById('test-message')
   var languageInput = document.getElementById('test-language')
-  var serverVoiceInput = document.getElementById('test-server-voice')
-  var browserVoiceSelect = document.getElementById('test-browser-voice')
+  var voiceInput = document.getElementById('test-server-voice')
   var tonePlayer = document.getElementById('tone-player')
+  var voicePlayer = document.getElementById('voice-player')
 
   var toneDefaultHint = document.getElementById('tone-default-hint')
   var priorityConfigByValue = {}
   var musterPatternByValue = {}
-  var pronunciationSubstitutions = []
 
   fetch(BASE + '/options', { cache: 'no-store' })
     .then(function (res) { return res.json() })
@@ -103,39 +160,13 @@
         musterPatternByValue[value] = m.pattern
       })
       updateToneDefaultHint()
-      pronunciationSubstitutions = options.pronunciationSubstitutions || []
       configuredVoice = options.voice || configuredVoice
       languageInput.placeholder = configuredVoice.language || 'en'
-      serverVoiceInput.placeholder = configuredVoice.serverVoice || '(language above)'
-      populateBrowserVoices()
+      voiceInput.placeholder = configuredVoice.serverVoice || '(language above)'
     })
     .catch(function (err) {
       console.error('signalk-imo-alerts: failed to fetch options', err)
     })
-
-  function populateBrowserVoices () {
-    if (!window.speechSynthesis) return
-    var voices = window.speechSynthesis.getVoices()
-    if (voices.length === 0) return // some browsers load voices async - see voiceschanged below
-    // avoid duplicating options if this runs more than once (voiceschanged
-    // can fire after an initial non-empty read too, in some browsers)
-    while (browserVoiceSelect.options.length > 1) {
-      browserVoiceSelect.remove(1)
-    }
-    voices.forEach(function (v) {
-      var opt = document.createElement('option')
-      opt.value = v.name
-      opt.textContent = v.name + ' (' + v.lang + ')'
-      browserVoiceSelect.appendChild(opt)
-    })
-    if (configuredVoice.browserVoice && voices.some(function (v) { return v.name === configuredVoice.browserVoice })) {
-      browserVoiceSelect.value = configuredVoice.browserVoice
-    }
-  }
-
-  if (window.speechSynthesis) {
-    window.speechSynthesis.addEventListener('voiceschanged', populateBrowserVoices)
-  }
 
   function updateToneDefaultHint () {
     if (toneSelect.value.indexOf('muster:') === 0) {
@@ -174,8 +205,7 @@
       tonePattern: isCustom ? patternInput.value : isMuster ? musterPatternByValue[toneValue] : undefined,
       message: messageInput.value || undefined,
       language: languageInput.value || undefined,
-      voice: serverVoiceInput.value || undefined,
-      browserVoice: browserVoiceSelect.value || configuredVoice.browserVoice || undefined
+      voice: voiceInput.value || undefined
     }
   }
 
@@ -188,7 +218,6 @@
   }
 
   var statusEl = document.getElementById('test-status')
-  var currentObjectUrl = null
 
   function setStatus (text) {
     statusEl.textContent = text || ''
@@ -198,55 +227,9 @@
     if (sel.toneCode === 'none') {
       return Promise.resolve()
     }
-
-    var url = toneClipUrl(sel)
-    return fetch(url, { cache: 'no-store' })
-      .then(function (res) {
-        if (!res.ok) {
-          return res
-            .json()
-            .catch(function () {
-              return {}
-            })
-            .then(function (body) {
-              throw new Error('HTTP ' + res.status + (body.error ? ': ' + body.error : ''))
-            })
-        }
-        return res.blob()
-      })
-      .then(function (blob) {
-        return new Promise(function (resolve) {
-          if (currentObjectUrl) URL.revokeObjectURL(currentObjectUrl)
-          currentObjectUrl = URL.createObjectURL(blob)
-          tonePlayer.src = currentObjectUrl
-          tonePlayer.onended = resolve
-          tonePlayer.onerror = function () {
-            setStatus('Tone loaded but the browser could not play it (' + (tonePlayer.error ? tonePlayer.error.message : 'unknown error') + ').')
-            resolve()
-          }
-          var playPromise = tonePlayer.play()
-          if (playPromise && playPromise.catch) {
-            playPromise.catch(function (err) {
-              setStatus('Browser blocked tone playback: ' + err.message)
-              resolve()
-            })
-          }
-        })
-      })
-      .catch(function (err) {
-        console.error('signalk-imo-alerts: failed to load tone clip', err)
-        setStatus('Failed to load tone clip from ' + url + ' - ' + err.message)
-      })
-  }
-
-  function applyPronunciation (text) {
-    return pronunciationSubstitutions.reduce(function (acc, sub) {
-      try {
-        return acc.replace(new RegExp(sub.pattern, 'gi'), sub.replacement)
-      } catch (err) {
-        return acc // invalid user-supplied regex - skip rather than throw
-      }
-    }, text)
+    return fetchAndPlay(toneClipUrl(sel), tonePlayer, function (msg) {
+      setStatus('Tone: ' + msg)
+    })
   }
 
   document.getElementById('test-preview').addEventListener('click', function () {
@@ -259,24 +242,35 @@
     setStatus('')
     var sel = currentSelection()
 
-    // browser-side: play tone then speak, immediately
-    playToneInBrowser(sel).then(function () {
-      speak(
-        sel.message ? applyPronunciation(sel.message) : sel.message,
-        sel.language || configuredVoice.language,
-        sel.browserVoice
-      )
-    })
+    // tone can start immediately, independent of the message
+    var tonePromise = playToneInBrowser(sel)
 
-    // server-side (if enabled in plugin config, exercises the real
-    // espeak-ng/aplay path on the Signal K host)
+    // server-side test-announce also returns the pronunciation-substituted
+    // spokenMessage, so the browser preview says exactly what the local
+    // speaker would - substitution logic lives once, server-side, rather
+    // than being duplicated in this file
     fetch(BASE + '/test-announce', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       cache: 'no-store',
       body: JSON.stringify(sel)
-    }).catch(function (err) {
-      console.error('signalk-imo-alerts: test-announce failed', err)
     })
+      .then(function (res) { return res.json() })
+      .then(function (body) {
+        if (!sel.message) return
+        return tonePromise.then(function () {
+          return fetchAndPlay(
+            voiceClipUrl(body.spokenMessage || sel.message, sel.language, sel.voice),
+            voicePlayer,
+            function (msg) {
+              setStatus('Voice: ' + msg)
+            }
+          )
+        })
+      })
+      .catch(function (err) {
+        console.error('signalk-imo-alerts: test-announce failed', err)
+        setStatus('test-announce request failed: ' + err.message)
+      })
   })
 })()

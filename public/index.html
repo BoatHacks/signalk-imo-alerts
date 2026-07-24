@@ -28,11 +28,12 @@
 
   <fieldset>
     <legend>Test mode</legend>
-    <p>Combine any priority, tone, message, and language to preview
-       exactly what an alert would sound like - without waiting for a
-       real notification. Plays in this browser (Web Speech API) and,
-       if server-side playback is enabled in plugin config, on the
-       Signal K host too.</p>
+    <p>Combine any priority, tone, message, language, and voice to
+       preview exactly what an alert would sound like - without
+       waiting for a real notification. The browser plays the exact
+       same rendered audio the Signal K host would (one TTS engine
+       for both), and, if server-side playback is enabled in plugin
+       config, it plays on the host too.</p>
 
     <form id="test-form">
       <div class="row">
@@ -68,18 +69,10 @@
       </div>
 
       <div class="row">
-        <label for="test-server-voice">Server voice</label>
+        <label for="test-server-voice">Voice</label>
         <input id="test-server-voice" type="text" placeholder="e.g. en-us, en+f3" size="20" />
       </div>
-      <small>Blank uses the plugin's configured server voice (or the language above if none is set). Run <code>espeak-ng --voices</code> on the Signal K host to list available ones.</small>
-
-      <div class="row">
-        <label for="test-browser-voice">Browser voice</label>
-        <select id="test-browser-voice">
-          <option value="">Plugin default / browser default</option>
-        </select>
-      </div>
-      <small>Voices available on <em>this</em> browser/device only - the plugin's configured browser voice (if it matches one below) is preselected.</small>
+      <small>Used for both browser and Signal K host playback (one engine, one voice). Blank uses the plugin's configured voice (or the language above if none is set). Run <code>espeak-ng --voices</code> on the Signal K host to list available ones.</small>
 
       <div class="row">
         <button type="button" id="test-preview">Preview tone only</button>
@@ -90,6 +83,8 @@
   </fieldset>
 
   <audio id="tone-player"></audio>
+  <audio id="voice-player"></audio>
+  <audio id="live-voice-player"></audio>
   <script src="app.js"></script>
 </body>
 </html>

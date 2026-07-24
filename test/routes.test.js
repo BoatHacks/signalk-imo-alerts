@@ -111,7 +111,7 @@ test('routes: /options, /tone-clip, /test-announce', async (t) => {
     const req = { body: { priority: 2, message: 'test message', toneCode: 'none' } }
     const res = makeFakeRes()
     router._routes['POST /test-announce'](req, res)
-    assert.deepEqual(res.body, { ok: true })
+    assert.deepEqual(res.body, { ok: true, spokenMessage: 'test message' })
   })
 
   await t.test('POST /test-announce with an invalid custom pattern is a 400', () => {
@@ -150,7 +150,7 @@ test('GET /options exposes configured voice/language settings', () => {
   const router = makeFakeRouter()
   const pluginFactory = require('../index.js')
   const plugin = pluginFactory(app)
-  plugin.start({ language: 'de', serverVoice: 'de+f3', browserVoice: 'Google Deutsch' })
+  plugin.start({ language: 'de', serverVoice: 'de+f3' })
   plugin.registerWithRouter(router)
 
   const req = {}
@@ -159,14 +159,13 @@ test('GET /options exposes configured voice/language settings', () => {
 
   assert.deepEqual(res.body.voice, {
     language: 'de',
-    serverVoice: 'de+f3',
-    browserVoice: 'Google Deutsch'
+    serverVoice: 'de+f3'
   })
 
   plugin.stop()
 })
 
-test('GET /options exposes pronunciationSubstitutions for the webapp\'s browser-side preview', () => {
+test('GET /options no longer exposes pronunciationSubstitutions (substitution now happens purely server-side)', () => {
   const app = makeFakeApp()
   const router = makeFakeRouter()
   const pluginFactory = require('../index.js')
@@ -180,9 +179,64 @@ test('GET /options exposes pronunciationSubstitutions for the webapp\'s browser-
   const res = makeFakeRes()
   router._routes['GET /options'](req, res)
 
-  assert.deepEqual(res.body.pronunciationSubstitutions, [
-    { pattern: 'SOG', replacement: 'speed over ground' }
-  ])
+  assert.equal(res.body.pronunciationSubstitutions, undefined)
+
+  plugin.stop()
+})
+
+test('POST /test-announce returns the pronunciation-substituted spokenMessage for the browser to preview', () => {
+  const app = makeFakeApp()
+  const router = makeFakeRouter()
+  const pluginFactory = require('../index.js')
+  const plugin = pluginFactory(app)
+  plugin.start({
+    pronunciationSubstitutions: [{ pattern: 'SOG', replacement: 'speed over ground' }]
+  })
+  plugin.registerWithRouter(router)
+
+  const req = { body: { priority: 2, message: 'SOG sensor fault', toneCode: 'none' } }
+  const res = makeFakeRes()
+  router._routes['POST /test-announce'](req, res)
+
+  assert.deepEqual(res.body, { ok: true, spokenMessage: 'speed over ground sensor fault' })
+
+  plugin.stop()
+})
+
+test('GET /voice-clip requires a message query param', async () => {
+  const app = makeFakeApp()
+  const router = makeFakeRouter()
+  const pluginFactory = require('../index.js')
+  const plugin = pluginFactory(app)
+  plugin.start({})
+  plugin.registerWithRouter(router)
+
+  const req = { query: {} }
+  const res = makeFakeRes()
+  await router._routes['GET /voice-clip'](req, res)
+  assert.equal(res.statusCode, 400)
+
+  plugin.stop()
+})
+
+test('GET /voice-clip never crashes regardless of whether espeak-ng is actually installed', async () => {
+  // deliberately doesn't assert 200 vs 503 - whether espeak-ng is present
+  // varies by environment (this sandbox has it; CI may not), and that
+  // specific behavior is already covered deterministically, with a
+  // mocked spawnFn, in test/tts.test.js. This just confirms the route
+  // itself degrades to a clean response either way, never an unhandled
+  // exception or a hang.
+  const app = makeFakeApp()
+  const router = makeFakeRouter()
+  const pluginFactory = require('../index.js')
+  const plugin = pluginFactory(app)
+  plugin.start({})
+  plugin.registerWithRouter(router)
+
+  const req = { query: { message: 'test message' } }
+  const res = makeFakeRes()
+  await router._routes['GET /voice-clip'](req, res)
+  assert.ok([200, 503].includes(res.statusCode), `expected 200 or 503, got ${res.statusCode}`)
 
   plugin.stop()
 })

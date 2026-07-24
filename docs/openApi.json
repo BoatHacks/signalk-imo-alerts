@@ -83,24 +83,12 @@
                         }
                       }
                     },
-                    "pronunciationSubstitutions": {
-                      "type": "array",
-                      "description": "Configured pronunciation fixes, exposed so the webapp's browser-side Web Speech preview of a typed test message matches server-side TTS",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "pattern": { "type": "string" },
-                          "replacement": { "type": "string" }
-                        }
-                      }
-                    },
                     "voice": {
                       "type": "object",
-                      "description": "Configured voice/language settings, so the webapp can default its test-mode voice fields to what's actually configured",
+                      "description": "Configured voice/language settings, so the webapp can default its test-mode voice field to what's actually configured. Used for both local-speaker and browser playback (one TTS engine serves both).",
                       "properties": {
                         "language": { "type": "string" },
-                        "serverVoice": { "type": "string", "description": "espeak-ng voice/variant" },
-                        "browserVoice": { "type": "string", "description": "Web Speech API voice name" }
+                        "serverVoice": { "type": "string", "description": "espeak-ng voice/variant" }
                       }
                     }
                   }
@@ -149,8 +137,39 @@
           }
         },
         "responses": {
-          "200": { "description": "Accepted" },
+          "200": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": { "type": "boolean" },
+                    "spokenMessage": {
+                      "type": ["string", "null"],
+                      "description": "The message after pronunciation substitution - use this (not the raw message sent) for a browser-side /voice-clip preview, so it matches server-side TTS exactly"
+                    }
+                  }
+                }
+              }
+            }
+          },
           "400": { "description": "Invalid request body" }
+        }
+      }
+    },
+    "/plugins/signalk-imo-alerts/voice-clip": {
+      "get": {
+        "summary": "Synthesize and serve a message's raw audio on demand (not cached - message text is usually dynamic). Used by the webapp to play the exact same audio the local speaker would.",
+        "parameters": [
+          { "name": "message", "in": "query", "required": true, "schema": { "type": "string" }, "description": "Text to synthesize - pronunciation substitution is NOT applied here; pass already-substituted text (see /test-announce's spokenMessage, or /active's message for real alerts)" },
+          { "name": "language", "in": "query", "schema": { "type": "string" }, "description": "Overrides the configured language for this request only" },
+          { "name": "voice", "in": "query", "schema": { "type": "string" }, "description": "Overrides the configured serverVoice for this request only" }
+        ],
+        "responses": {
+          "200": { "description": "audio/wav clip" },
+          "400": { "description": "No message given" },
+          "503": { "description": "Speech synthesis unavailable (e.g. espeak-ng missing)" }
         }
       }
     },
