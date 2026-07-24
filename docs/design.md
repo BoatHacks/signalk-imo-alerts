@@ -255,17 +255,22 @@ concept (e.g. tagging a path or override as "fire-related") so
 Alarm/Emergency-Alarm-tier paths could pick between `2` and `3.x`
 the way the real table does — deliberately not done here.
 
-Since Caution and Warning have no Table 7.2 basis at all, their
-default tones are made **fully user-configurable** in `plugin.schema`
-(`cautionTone` / `warningTone`): each is either a preset built-in code
+All four priorities' default tones are **fully user-configurable** in
+`plugin.schema` (`cautionTone` / `warningTone` / `alarmTone` /
+`emergencyAlarmTone`): each is either a preset built-in code
 (`1a`/`2`/`3a`/`3b`/`3c`/`3d`) or a free custom pattern (same
 `"<freqHz>:<durationMs> ..."` text format as `musterListCodes`),
-resolved in `lib/tones.js`'s `resolveClipPath`. Alarm and Emergency
-Alarm are not configurable this way — their defaults (`2` and `1.a`
-respectively) at least partially reflect real table rows, even if not
-perfectly, so they stay fixed for now; per-path overrides remain
-available for those via `messageOverrides`/`musterListCodes` or a
-manual `toneCode`/`tonePattern` in `test-announce`.
+resolved in `lib/tones.js`'s `resolveClipPath`. This matters most for
+Caution/Warning, which have zero Table 7.2 basis to begin with — but
+Alarm and Emergency Alarm are configurable the same way, since their
+built-in defaults (`2` and `1.a`) only reflect *one* of several
+function-specific cases the real table distinguishes (e.g. a bilge
+alarm should arguably use `3`, not `2`) and different installations
+may reasonably want a different default for their own alarm mix.
+Muster-list path overrides still take precedence over any of these
+priority-level configs; per-path overrides also remain available via
+`messageOverrides` or a manual `toneCode`/`tonePattern` in
+`test-announce`.
 
 **Full scope implemented** — 1.a, 1.b, 2, and 3.a–3.d are all in
 scope, including 1.b ship-specific muster-list codes even though

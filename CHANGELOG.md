@@ -7,13 +7,18 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
-- `cautionTone` and `warningTone` plugin config options: since Caution
-  and Warning have no IMO A.1021(26) table basis at all (see below),
-  their tones are now fully user-configurable - pick a built-in preset
-  (`1a`/`2`/`3a`/`3b`/`3c`/`3d`) or supply a free custom pattern (same
-  text format as `musterListCodes`). Resolved in `lib/tones.js`'s
-  `resolveClipPath`, which now takes an optional per-priority tone
-  config and falls back to the built-in default when none is set.
+- `cautionTone`, `warningTone`, `alarmTone`, and `emergencyAlarmTone`
+  plugin config options: every priority's default tone is now fully
+  user-configurable - pick a built-in preset (`1a`/`2`/`3a`/`3b`/`3c`/
+  `3d`) or supply a free custom pattern (same text format as
+  `musterListCodes`). This matters most for Caution/Warning, which
+  have no IMO A.1021(26) table basis at all, but Alarm/Emergency Alarm
+  are configurable too since their built-in defaults only reflect one
+  of several function-specific cases the real table distinguishes.
+  Resolved in `lib/tones.js`'s `resolveClipPath`, which takes an
+  optional per-priority tone config (muster-list path overrides still
+  take precedence) and falls back to the built-in default when none
+  is set.
 
 ### Documentation
 

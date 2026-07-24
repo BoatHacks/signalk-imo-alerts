@@ -57,6 +57,19 @@ test('resolveClipPath uses a configured custom pattern override for Caution/Warn
   assert.equal(clip, resolveMusterClipPath(pattern))
 })
 
+test('Alarm and Emergency Alarm are overridable the same way, despite having a partial table basis', () => {
+  const alarmClip = resolveClipPath(PRIORITY.ALARM, 'notifications.foo', [], {
+    [PRIORITY.ALARM]: { preset: '3b' }
+  })
+  assert.equal(alarmClip, clipPathFor('3b'))
+
+  const pattern = '2000:300 0:100 2000:300'
+  const emergencyClip = resolveClipPath(PRIORITY.EMERGENCY_ALARM, 'notifications.mob', [], {
+    [PRIORITY.EMERGENCY_ALARM]: { preset: 'custom', pattern }
+  })
+  assert.equal(emergencyClip, resolveMusterClipPath(pattern))
+})
+
 test('a muster-list path override still wins over a priority tone config override', () => {
   const musterPattern = '500:100 0:50 2000:100'
   const clip = resolveClipPath(

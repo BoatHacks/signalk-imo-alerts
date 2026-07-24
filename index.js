@@ -130,6 +130,42 @@ module.exports = function (app) {
           }
         }
       },
+      alarmTone: {
+        type: 'object',
+        title:
+          'Alarm-priority tone (default "2" reflects fire-detection-alarm rows in IMO A.1021(26) Table 7.1.2; most other Alarm-tier functions there actually use "3" instead - override if that fits your use better)',
+        properties: {
+          preset: {
+            type: 'string',
+            title: 'Built-in pattern, or "custom" to use the pattern field below',
+            enum: ['1a', '2', '3a', '3b', '3c', '3d', 'custom'],
+            default: '2'
+          },
+          pattern: {
+            type: 'string',
+            title:
+              'Custom pattern (used when preset = "custom"): space-separated <freqHz>:<durationMs> tokens, e.g. "500:1000 0:250 2000:1000" (freq 0 = silence)'
+          }
+        }
+      },
+      emergencyAlarmTone: {
+        type: 'object',
+        title:
+          'Emergency alarm-priority tone (default "1a" reflects the general-emergency-alarm row in IMO A.1021(26) Table 7.1.1; other Emergency-Alarm-tier functions there actually use "2" instead - override if that fits your use better)',
+        properties: {
+          preset: {
+            type: 'string',
+            title: 'Built-in pattern, or "custom" to use the pattern field below',
+            enum: ['1a', '2', '3a', '3b', '3c', '3d', 'custom'],
+            default: '1a'
+          },
+          pattern: {
+            type: 'string',
+            title:
+              'Custom pattern (used when preset = "custom"): space-separated <freqHz>:<durationMs> tokens, e.g. "500:1000 0:250 2000:1000" (freq 0 = silence)'
+          }
+        }
+      },
       musterListCodes: {
         type: 'array',
         title: 'IMO A.1021(26) 1.b ship-specific muster-list tone patterns',
@@ -210,7 +246,12 @@ module.exports = function (app) {
       pronunciationSubstitutions: o.pronunciationSubstitutions || [],
       musterListCodes: o.musterListCodes || [],
       cautionTone: { preset: o.cautionTone?.preset || '3c', pattern: o.cautionTone?.pattern || '' },
-      warningTone: { preset: o.warningTone?.preset || '3a', pattern: o.warningTone?.pattern || '' }
+      warningTone: { preset: o.warningTone?.preset || '3a', pattern: o.warningTone?.pattern || '' },
+      alarmTone: { preset: o.alarmTone?.preset || '2', pattern: o.alarmTone?.pattern || '' },
+      emergencyAlarmTone: {
+        preset: o.emergencyAlarmTone?.preset || '1a',
+        pattern: o.emergencyAlarmTone?.pattern || ''
+      }
     }
   }
 
@@ -273,7 +314,9 @@ module.exports = function (app) {
   function priorityToneConfig () {
     return {
       [PRIORITY.CAUTION]: config.cautionTone,
-      [PRIORITY.WARNING]: config.warningTone
+      [PRIORITY.WARNING]: config.warningTone,
+      [PRIORITY.ALARM]: config.alarmTone,
+      [PRIORITY.EMERGENCY_ALARM]: config.emergencyAlarmTone
     }
   }
 
