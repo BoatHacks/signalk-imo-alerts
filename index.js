@@ -310,7 +310,12 @@ module.exports = function (app) {
           return
         }
         res.type('audio/wav')
-        res.sendFile(path.resolve(clipPath))
+        res.sendFile(path.resolve(clipPath), (err) => {
+          if (err && !res.headersSent) {
+            app.debug(`tone-clip sendFile error: ${err.message}`)
+            res.status(500).json({ error: 'failed to send clip' })
+          }
+        })
       } catch (err) {
         res.status(400).json({ error: err.message })
       }

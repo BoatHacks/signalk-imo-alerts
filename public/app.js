@@ -108,31 +108,66 @@
     return BASE + '/tone-clip?' + params.toString()
   }
 
+  var statusEl = document.getElementById('test-status')
+  var currentObjectUrl = null
+
+  function setStatus (text) {
+    statusEl.textContent = text || ''
+  }
+
   function playToneInBrowser (sel) {
-    return new Promise(function (resolve) {
-      if (sel.toneCode === 'none') {
-        resolve()
-        return
-      }
-      tonePlayer.src = toneClipUrl(sel)
-      tonePlayer.onended = resolve
-      tonePlayer.onerror = function () {
-        console.error('signalk-imo-alerts: failed to load/play tone clip')
-        resolve()
-      }
-      tonePlayer.play().catch(function (err) {
-        console.error('signalk-imo-alerts: tone playback blocked', err)
-        resolve()
+    if (sel.toneCode === 'none') {
+      return Promise.resolve()
+    }
+
+    var url = toneClipUrl(sel)
+    return fetch(url, { cache: 'no-store' })
+      .then(function (res) {
+        if (!res.ok) {
+          return res
+            .json()
+            .catch(function () {
+              return {}
+            })
+            .then(function (body) {
+              throw new Error('HTTP ' + res.status + (body.error ? ': ' + body.error : ''))
+            })
+        }
+        return res.blob()
       })
-    })
+      .then(function (blob) {
+        return new Promise(function (resolve) {
+          if (currentObjectUrl) URL.revokeObjectURL(currentObjectUrl)
+          currentObjectUrl = URL.createObjectURL(blob)
+          tonePlayer.src = currentObjectUrl
+          tonePlayer.onended = resolve
+          tonePlayer.onerror = function () {
+            setStatus('Tone loaded but the browser could not play it (' + (tonePlayer.error ? tonePlayer.error.message : 'unknown error') + ').')
+            resolve()
+          }
+          var playPromise = tonePlayer.play()
+          if (playPromise && playPromise.catch) {
+            playPromise.catch(function (err) {
+              setStatus('Browser blocked tone playback: ' + err.message)
+              resolve()
+            })
+          }
+        })
+      })
+      .catch(function (err) {
+        console.error('signalk-imo-alerts: failed to load tone clip', err)
+        setStatus('Failed to load tone clip from ' + url + ' - ' + err.message)
+      })
   }
 
   document.getElementById('test-preview').addEventListener('click', function () {
+    setStatus('')
     playToneInBrowser(currentSelection())
   })
 
   document.getElementById('test-form').addEventListener('submit', function (ev) {
     ev.preventDefault()
+    setStatus('')
     var sel = currentSelection()
 
     // browser-side: play tone then speak, immediately

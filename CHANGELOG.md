@@ -17,6 +17,18 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- Browser-side tone preview/playback (`public/app.js`) wasn't audibly
+  playing anything, even though the request logic traced through
+  correctly on paper. Rewrote `playToneInBrowser` to fetch the clip as
+  a blob first (surfacing real HTTP errors instead of a silent
+  `<audio>` load failure, and sidestepping range-request/caching
+  quirks some embedded/webview browsers have with query-string audio
+  URLs) rather than pointing `<audio src>` directly at the endpoint.
+  Playback failures now show a visible status message in the test
+  form instead of only logging to the console. Also added an error
+  callback to the backend's `res.sendFile` in `/tone-clip`, so an
+  async send failure there isn't silent either.
+
 - REST routes (`/active`, `/options`, `/tone-clip`, `/test-announce`,
   `/acknowledge`, `/silence`) were registered via a guessed
   `app.getPluginRouter?.() || app.router` fallback, which is not the
