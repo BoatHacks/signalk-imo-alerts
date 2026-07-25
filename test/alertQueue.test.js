@@ -83,9 +83,49 @@ test('silence is temporary and resumes on next tick after the repeat interval', 
   assert.deepEqual(announced, ['a', 'a'])
 })
 
-test('priority NONE (signalk alert state) is never enqueued', () => {
+test('a null priority (unrecognized/missing) is never enqueued', () => {
   const { queue, announced } = makeQueue()
-  queue.upsert('a', PRIORITY.NONE, 'should not speak')
+  queue.upsert('a', null, 'should not speak')
   assert.deepEqual(announced, [])
   assert.equal(queue.alerts.has('a'), false)
+})
+
+test('escalation (priority increase) while idle re-announces immediately, not waiting for tick', async () => {
+  const { queue, announced, finishCurrent } = makeQueue()
+  queue.upsert('a', PRIORITY.WARNING, 'warning msg')
+  assert.deepEqual(announced, ['a'])
+  finishCurrent() // settle - nothing else queued, now idle
+  await Promise.resolve() // let the announce().then() microtask run
+
+  queue.upsert('a', PRIORITY.ALARM, 'escalated msg')
+  assert.deepEqual(announced, ['a', 'a'], 'escalation re-announced without waiting for the repeat interval')
+  assert.equal(queue.alerts.get('a').priority, PRIORITY.ALARM)
+})
+
+test('escalation while a lower/no-priority alert is playing preempts immediately', () => {
+  const { queue, announced, interrupted } = makeQueue()
+  queue.upsert('low', PRIORITY.CAUTION, 'low msg')
+  assert.deepEqual(announced, ['low'])
+
+  queue.upsert('low', PRIORITY.ALARM, 'escalated low msg')
+  assert.deepEqual(announced, ['low', 'low'], 'escalation preempted its own stale lower-priority playback')
+  assert.equal(interrupted.length, 1)
+})
+
+test('escalation while a higher-priority alert is playing waits for it, but is picked up immediately after (not after a further repeat interval)', async () => {
+  const { queue, announced, finishCurrent } = makeQueue()
+  queue.upsert('urgent', PRIORITY.EMERGENCY_ALARM, 'urgent msg')
+  queue.upsert('other', PRIORITY.WARNING, 'other msg')
+  assert.deepEqual(announced, ['urgent'])
+
+  queue.upsert('other', PRIORITY.ALARM, 'escalated other msg') // still < EMERGENCY_ALARM
+  assert.deepEqual(announced, ['urgent'], 'no immediate interrupt - urgent is still higher priority')
+
+  finishCurrent() // urgent's announcement completes
+  await Promise.resolve() // let the announce().then() microtask run
+  assert.deepEqual(
+    announced,
+    ['urgent', 'other'],
+    'escalated entry picked up right after, not delayed by the repeat interval'
+  )
 })

@@ -5,12 +5,45 @@ const assert = require('node:assert/strict')
 const path = require('path')
 
 function makeFakeApp () {
+  let deltaHandler = null
   return {
-    subscriptionmanager: { subscribe: () => () => {} },
+    subscriptionmanager: {
+      subscribe: (sub, unsubs, errCb, deltaCb) => {
+        deltaHandler = deltaCb
+        return () => {}
+      }
+    },
     error: () => {},
     debug: () => {},
-    getSelfPath: () => Promise.resolve(undefined),
-    registerPutHandler: () => {}
+    setPluginStatus: () => {},
+    // test helper: simulate an incoming alerts.<path> delta, the same
+    // shape signalk-alert-manager actually publishes
+    _emitAlert (alertPath, value) {
+      deltaHandler({
+        updates: [{ values: [{ path: `alerts.${alertPath}`, value }] }]
+      })
+    }
+  }
+}
+
+// A full, valid alerts.* value object with sensible defaults - see
+// docs/alerts-only-plan.md for the shape. Individual fields overridable.
+function makeAlert (overrides = {}) {
+  return {
+    id: 'test-id-1',
+    path: 'tanks.fuel.0',
+    $source: 'test-source',
+    priority: 'warning',
+    state: 'unacknowledged',
+    condition: true,
+    latching: true,
+    silenced: false,
+    message: 'Fuel tank low',
+    raisedAt: new Date().toISOString(),
+    sourceOnline: true,
+    lastSourceUpdate: new Date().toISOString(),
+    stale: false,
+    ...overrides
   }
 }
 
@@ -283,6 +316,278 @@ test('GET /voice-clip never crashes regardless of whether espeak-ng is actually 
   const res = makeFakeRes()
   await router._routes['GET /voice-clip'](req, res)
   assert.ok([200, 503].includes(res.statusCode), `expected 200 or 503, got ${res.statusCode}`)
+
+  plugin.stop()
+})
+
+test('POST /acknowledge without a path is a 400', async () => {
+  const app = makeFakeApp()
+  const router = makeFakeRouter()
+  const plugin = require('../index.js')(app)
+  plugin.start({})
+  plugin.registerWithRouter(router)
+
+  const req = { body: {} }
+  const res = makeFakeRes()
+  await router._routes['POST /acknowledge'](req, res)
+  assert.equal(res.statusCode, 400)
+
+  plugin.stop()
+})
+
+test('POST /acknowledge is a 400 (no fetch attempted) when no alertManagerToken is configured', async () => {
+  const app = makeFakeApp()
+  const router = makeFakeRouter()
+  const plugin = require('../index.js')(app)
+  plugin.start({}) // no alertManagerToken
+  plugin.registerWithRouter(router)
+
+  app._emitAlert('tanks.fuel.0', makeAlert({ id: 'abc-123' }))
+
+  const originalFetch = global.fetch
+  let fetchCalled = false
+  global.fetch = async () => {
+    fetchCalled = true
+    return { ok: true, status: 200 }
+  }
+  try {
+    const req = { body: { path: 'tanks.fuel.0' } }
+    const res = makeFakeRes()
+    await router._routes['POST /acknowledge'](req, res)
+    assert.equal(res.statusCode, 400)
+    assert.equal(fetchCalled, false)
+  } finally {
+    global.fetch = originalFetch
+  }
+
+  plugin.stop()
+})
+
+test('POST /acknowledge for an unknown path is a 404', async () => {
+  const app = makeFakeApp()
+  const router = makeFakeRouter()
+  const plugin = require('../index.js')(app)
+  plugin.start({ alertManagerToken: 'test-token' })
+  plugin.registerWithRouter(router)
+
+  const req = { body: { path: 'never.seen.this.path' } }
+  const res = makeFakeRes()
+  await router._routes['POST /acknowledge'](req, res)
+  assert.equal(res.statusCode, 404)
+
+  plugin.stop()
+})
+
+test('POST /acknowledge calls alert manager\'s REST API with a Bearer token and the tracked id', async () => {
+  const app = makeFakeApp()
+  const router = makeFakeRouter()
+  const plugin = require('../index.js')(app)
+  plugin.start({ alertManagerToken: 'test-token' })
+  plugin.registerWithRouter(router)
+
+  app._emitAlert('tanks.fuel.0', makeAlert({ id: 'abc-123' }))
+
+  const originalFetch = global.fetch
+  let capturedUrl, capturedOpts
+  global.fetch = async (url, opts) => {
+    capturedUrl = url
+    capturedOpts = opts
+    return { ok: true, status: 200 }
+  }
+  try {
+    const req = { body: { path: 'tanks.fuel.0' } }
+    const res = makeFakeRes()
+    await router._routes['POST /acknowledge'](req, res)
+
+    assert.deepEqual(res.body, { ok: true })
+    assert.equal(capturedUrl, 'http://localhost:3000/plugins/signalk-alert-manager/alerts/abc-123/acknowledge')
+    assert.equal(capturedOpts.headers.Authorization, 'Bearer test-token')
+  } finally {
+    global.fetch = originalFetch
+  }
+
+  plugin.stop()
+})
+
+test('POST /acknowledge surfaces alert manager\'s error status/body on failure', async () => {
+  const app = makeFakeApp()
+  const router = makeFakeRouter()
+  const plugin = require('../index.js')(app)
+  plugin.start({ alertManagerToken: 'bad-token' })
+  plugin.registerWithRouter(router)
+
+  app._emitAlert('tanks.fuel.0', makeAlert({ id: 'abc-123' }))
+
+  const originalFetch = global.fetch
+  global.fetch = async () => ({ ok: false, status: 401, text: async () => 'Unauthorized' })
+  try {
+    const req = { body: { path: 'tanks.fuel.0' } }
+    const res = makeFakeRes()
+    await router._routes['POST /acknowledge'](req, res)
+    assert.equal(res.statusCode, 401)
+  } finally {
+    global.fetch = originalFetch
+  }
+
+  plugin.stop()
+})
+
+test('POST /silence omits duration when not given, letting alert manager use its own configured default', async () => {
+  const app = makeFakeApp()
+  const router = makeFakeRouter()
+  const plugin = require('../index.js')(app)
+  plugin.start({ alertManagerToken: 'test-token' })
+  plugin.registerWithRouter(router)
+
+  app._emitAlert('tanks.fuel.0', makeAlert({ id: 'warn-id', priority: 'warning' }))
+
+  const originalFetch = global.fetch
+  let capturedUrl, capturedOpts
+  global.fetch = async (url, opts) => {
+    capturedUrl = url
+    capturedOpts = opts
+    return { ok: true, status: 200 }
+  }
+  try {
+    const res = makeFakeRes()
+    await router._routes['POST /silence']({ body: { path: 'tanks.fuel.0' } }, res)
+    assert.equal(capturedUrl, 'http://localhost:3000/plugins/signalk-alert-manager/alerts/warn-id/silence')
+    assert.equal(capturedOpts.body, undefined)
+  } finally {
+    global.fetch = originalFetch
+  }
+
+  plugin.stop()
+})
+
+test('POST /silence includes an explicit durationSeconds override in the request body', async () => {
+  const app = makeFakeApp()
+  const router = makeFakeRouter()
+  const plugin = require('../index.js')(app)
+  plugin.start({ alertManagerToken: 'test-token' })
+  plugin.registerWithRouter(router)
+
+  app._emitAlert('tanks.fuel.0', makeAlert({ id: 'warn-id' }))
+
+  const originalFetch = global.fetch
+  let capturedOpts
+  global.fetch = async (url, opts) => {
+    capturedOpts = opts
+    return { ok: true, status: 200 }
+  }
+  try {
+    const res = makeFakeRes()
+    await router._routes['POST /silence']({ body: { path: 'tanks.fuel.0', durationSeconds: 45 } }, res)
+    assert.deepEqual(JSON.parse(capturedOpts.body), { duration: 45 })
+  } finally {
+    global.fetch = originalFetch
+  }
+
+  plugin.stop()
+})
+
+test('alerts.* delta handling: unacknowledged alert becomes active with priority-prefixed message', () => {
+  const app = makeFakeApp()
+  const router = makeFakeRouter()
+  const plugin = require('../index.js')(app)
+  plugin.start({})
+  plugin.registerWithRouter(router)
+
+  app._emitAlert('tanks.fuel.0', makeAlert())
+
+  const res = makeFakeRes()
+  router._routes['GET /active'](null, res)
+  assert.deepEqual(res.body, [
+    { path: 'tanks.fuel.0', priority: 2, message: 'Warning. Fuel tank low.', state: 'unacknowledged' }
+  ])
+
+  plugin.stop()
+})
+
+test('alerts.* delta handling: state normal clears the alert', () => {
+  const app = makeFakeApp()
+  const router = makeFakeRouter()
+  const plugin = require('../index.js')(app)
+  plugin.start({})
+  plugin.registerWithRouter(router)
+
+  app._emitAlert('tanks.fuel.0', makeAlert())
+  app._emitAlert('tanks.fuel.0', makeAlert({ state: 'normal' }))
+
+  const res = makeFakeRes()
+  router._routes['GET /active'](null, res)
+  assert.deepEqual(res.body, [])
+
+  plugin.stop()
+})
+
+test('alerts.* delta handling: silenced flag maps to our silenced state', () => {
+  const app = makeFakeApp()
+  const router = makeFakeRouter()
+  const plugin = require('../index.js')(app)
+  plugin.start({})
+  plugin.registerWithRouter(router)
+
+  app._emitAlert('tanks.fuel.0', makeAlert())
+  app._emitAlert('tanks.fuel.0', makeAlert({ silenced: true }))
+
+  const res = makeFakeRes()
+  router._routes['GET /active'](null, res)
+  assert.equal(res.body[0].state, 'silenced')
+
+  plugin.stop()
+})
+
+test('alerts.* delta handling: an unrecognized priority is ignored, not voiced', () => {
+  const app = makeFakeApp()
+  const router = makeFakeRouter()
+  const plugin = require('../index.js')(app)
+  plugin.start({})
+  plugin.registerWithRouter(router)
+
+  app._emitAlert('tanks.fuel.0', makeAlert({ priority: 'nonsense' }))
+
+  const res = makeFakeRes()
+  router._routes['GET /active'](null, res)
+  assert.deepEqual(res.body, [])
+
+  plugin.stop()
+})
+
+test('alerts.* delta handling: a heartbeat (identical id/priority/state/message/silenced) does not re-trigger', () => {
+  const app = makeFakeApp()
+  const router = makeFakeRouter()
+  const plugin = require('../index.js')(app)
+  plugin.start({})
+  plugin.registerWithRouter(router)
+
+  app._emitAlert('tanks.fuel.0', makeAlert())
+  const res1 = makeFakeRes()
+  router._routes['GET /active'](null, res1)
+  const firstEntry = res1.body[0]
+
+  // identical heartbeat delta
+  app._emitAlert('tanks.fuel.0', makeAlert())
+  const res2 = makeFakeRes()
+  router._routes['GET /active'](null, res2)
+
+  assert.deepEqual(res2.body[0], firstEntry, 'entry unchanged by a heartbeat')
+
+  plugin.stop()
+})
+
+test('alerts.* delta handling: rtn-unacknowledged speaks a distinct configured phrase', () => {
+  const app = makeFakeApp()
+  const router = makeFakeRouter()
+  const plugin = require('../index.js')(app)
+  plugin.start({ warningRtnPhrasing: { useDistinctPhrase: true, phrase: 'Fuel tank alarm cleared' } })
+  plugin.registerWithRouter(router)
+
+  app._emitAlert('tanks.fuel.0', makeAlert({ state: 'rtn-unacknowledged' }))
+
+  const res = makeFakeRes()
+  router._routes['GET /active'](null, res)
+  assert.equal(res.body[0].message, 'Warning. Fuel tank alarm cleared.')
 
   plugin.stop()
 })

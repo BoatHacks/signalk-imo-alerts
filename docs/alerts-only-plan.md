@@ -1,5 +1,15 @@
 # Plan: `alerts.*` as the single source
 
+**Status: implemented and live-verified** (priority mapping, heartbeat
+dedup, lifecycle states, escalation, ack/silence via REST, all of
+`pinnedEmergencyAlarmPaths`/`lib/ackListener.js` removed). One
+correction along the way, worth knowing before reading further: the
+plugin-API integration this plan originally called for
+(`app.alertManager`) turned out to be structurally unreachable — see
+"Ack/Silence: delegate, don't own" below and
+[BoatHacks/signalk-imo-alerts#1](https://github.com/BoatHacks/signalk-imo-alerts/issues/1).
+Ack/silence go through alert manager's REST API instead.
+
 Branch: `alerts-only`. Goal: stop deriving priority/state from raw
 `notifications.*` deltas and MSC.302(87) guesswork, and instead consume
 `alerts.*` deltas published by [hatlabs/signalk-alert-manager][sam] as the
@@ -143,19 +153,60 @@ for lifecycle state, matching the README's own framing: *"The
 `AlertManager` is the single source of truth... No external actor can
 modify alert state directly."*
 
-Two ways to call it, in preference order:
-1. **Plugin API** (`app.alertManager.acknowledgeAlert(id, operator)`,
-   `app.alertManager.silenceAlert(id, ms)`) — same-process, no auth
-   token needed, the README explicitly documents this for other
-   plugins. Requires a soft-dependency check (`app.alertManager` may be
-   undefined if alert manager isn't installed/enabled) with a clear
-   error surfaced through our existing REST endpoints rather than a
-   silent no-op.
-2. **REST API** (`POST /plugins/signalk-alert-manager/alerts/{id}/
-   acknowledge`) — fallback if the plugin API isn't available for some
-   reason, but requires the server's admin bearer token, which is
-   awkward for one plugin to obtain on behalf of another. Probably not
-   worth implementing unless the plugin API path proves insufficient.
+**Update, discovered during implementation: the plugin API doesn't
+actually work.** The original plan (below, kept for the record) rated
+`app.alertManager` as the preferred mechanism. It isn't reachable.
+`signalk-server` gives every plugin its own separate, shallow-copied
+`app` object (`interfaces/plugins.js`:
+`lodash.assign({}, app, {...perPluginStuff})`); alert manager's own
+`app.alertManager = api` inside its `start()` only mutates its own
+private copy, invisible to every other plugin's copy — including
+ours. Confirmed live against a real `signalk-server` + alert manager
+pairing (not a load-order race: alert manager fully started, its own
+REST API working, `app.alertManager` still `undefined` from our side
+over a minute later) and independently confirmed upstream:
+hatlabs/signalk-alert-manager#104 (bug report) and #106 (the
+maintainer's docs fix, redirecting plugin authors to `alerts.*`
+deltas + the REST API instead). Filed as
+[BoatHacks/signalk-imo-alerts#1](https://github.com/BoatHacks/signalk-imo-alerts/issues/1).
+
+So the REST API is now the *only* path, not a fallback:
+
+**REST API** (`POST /plugins/signalk-alert-manager/alerts/{id}/
+acknowledge`, `.../silence`) — requires the server's normal admin
+Bearer token; there's no in-process bypass for same-process/same-server
+calls (confirmed: *"All REST API routes inherit the server's admin
+authentication middleware; unauthenticated requests are rejected
+before reaching the plugin"*). Implemented as `lib/alertManagerClient.js`,
+with a new `alertManagerToken` plugin config setting the user
+generates once via Admin UI → Security → Devices (or the
+`signalk-generate-token` CLI) and pastes in. Without a token
+configured, ack/silence fail fast with a clear error (`checkAlertManagerTokenConfigured()`
+logs a one-time startup warning) — reading `alerts.*` still works
+fine regardless, only the write path needs it.
+
+One upside of the REST API that the plugin API didn't have: `POST
+.../silence` already defaults to alert manager's own configured
+maximum duration per priority when `duration` is omitted from the
+request body, so we don't need to duplicate that 120s/30s default
+ourselves the way the (moot) plugin-API version would have required.
+
+Original plan text, for the record — this is what motivated building
+the plugin-API path first before discovering it doesn't work:
+
+> Two ways to call it, in preference order:
+> 1. **Plugin API** (`app.alertManager.acknowledgeAlert(id, operator)`,
+>    `app.alertManager.silenceAlert(id, ms)`) — same-process, no auth
+>    token needed, the README explicitly documents this for other
+>    plugins. Requires a soft-dependency check (`app.alertManager` may
+>    be undefined if alert manager isn't installed/enabled) with a
+>    clear error surfaced through our existing REST endpoints rather
+>    than a silent no-op.
+> 2. **REST API** — fallback if the plugin API isn't available for
+>    some reason, but requires the server's admin bearer token, which
+>    is awkward for one plugin to obtain on behalf of another.
+>    Probably not worth implementing unless the plugin API path
+>    proves insufficient.
 
 This also means `lib/ackListener.js`'s per-path PUT-handler
 registration and poll-fallback become dead code under alerts-only —
@@ -199,8 +250,10 @@ would be a reasonable future enhancement, not required for this plan.
   (alert manager's `message` is always present, and `data` isn't a
   value+unit pair the way a notification's `.value` can be).
 - **Changed**: `/acknowledge` and `/silence` REST endpoints — become
-  thin proxies to `app.alertManager`, not direct `queue.acknowledge/
-  silence` calls.
+  thin proxies to alert manager's own REST API
+  (`lib/alertManagerClient.js`), not direct `queue.acknowledge/
+  silence` calls, and not `app.alertManager` either (unreachable —
+  see "Ack/Silence: delegate, don't own" above).
 - **Unchanged**: `AlertQueue`'s priority-preemption/chronological
   queueing, repeat scheduling, tone/voice rendering, `musterListCodes`
   path matching, all of `lib/tones.js`/`lib/tonePattern.js`/
@@ -229,14 +282,19 @@ The five open questions above have been decided:
    phrase. Mirrors the existing per-priority tone configurability
    (`cautionTone`/`warningTone`/`alarmTone`/`emergencyAlarmTone`) —
    same pattern, new axis.
-3. **Graceful degradation: start, don't refuse.** If
-   `app.alertManager` is `undefined` at startup, the plugin starts
-   anyway, logs a clear warning (`app.debug` and/or
-   `app.setPluginStatus`), and does nothing until alert manager
-   actually appears — rather than refusing to start outright. Needs a
-   way to detect alert manager appearing *after* our own startup too
-   (it's a separate plugin; load order between two plugins in the same
-   signalk-server isn't guaranteed), not just a one-time check.
+3. **Graceful degradation: start, don't refuse. Update: the detection
+   mechanism changed.** The original plan was to check `app.alertManager`
+   at startup and again on a timer, to catch it appearing after our own
+   startup (load order between two plugins isn't guaranteed). That's
+   moot now that `app.alertManager` is known to be unreachable
+   entirely (see "Ack/Silence" above) — there's no cross-plugin signal
+   left to poll. What we actually implemented: reading `alerts.*`
+   always works regardless (no dependency on any of this); only
+   ack/silence need alert manager reachable, and the only thing we can
+   locally detect is whether an `alertManagerToken` is configured at
+   all — checked once at startup (`checkAlertManagerTokenConfigured()`),
+   logging a warning if not, since a missing token is a config problem
+   we can actually see, unlike alert manager's liveness.
 4. **Escalation re-announces immediately.** When alert manager
    auto-escalates a warning to alarm (or any priority bump on the same
    alert `id`), treat it as a fresh higher-priority occurrence and
@@ -252,30 +310,42 @@ The five open questions above have been decided:
    `upsert` with a higher priority, and the current code's repeat gate
    keys off `lastAnnounced`, not priority-unchanged-since-last-time).
 5. **Keep our own ack/silence buttons**, as a thin proxy to alert
-   manager's API (`app.alertManager.acknowledgeAlert`/`silenceAlert`).
-   Not deferring entirely to alert manager's own Web UI — the
-   preview/test webapp stays self-contained.
+   manager's REST API (`lib/alertManagerClient.js`, since
+   `app.alertManager` turned out to be unreachable — see "Ack/Silence:
+   delegate, don't own" above). Not deferring entirely to alert
+   manager's own Web UI — the preview/test webapp stays self-contained.
 
 ## Testing / verification plan
 
-- Unit tests: new fixtures for `alerts.*`-shaped deltas (replacing/
-  augmenting the current notification-shaped ones in
-  `test/index`-adjacent tests), priority-string-to-`PRIORITY` mapping,
-  heartbeat-dedup behavior (same id/priority/message twice → no
-  re-trigger), `rtn-unacknowledged`/`normal` transitions, per-priority
-  `rtn-unacknowledged` phrasing config, escalation forcing an immediate
-  re-announcement (not just a silent priority bump).
-- Mock `app.alertManager` for ack/silence-proxy tests (success case,
-  and the "alert manager not installed" case) and for the
-  appears-after-our-startup detection case.
+- Unit tests: fixtures for `alerts.*`-shaped deltas, priority-string-
+  to-`PRIORITY` mapping, heartbeat-dedup behavior (same id/priority/
+  message twice → no re-trigger), `rtn-unacknowledged`/`normal`
+  transitions, per-priority `rtn-unacknowledged` phrasing config,
+  escalation forcing an immediate re-announcement (not just a silent
+  priority bump). Done — `test/priority.test.js`, `test/templates.test.js`,
+  `test/alertQueue.test.js`, `test/routes.test.js`.
+- Mock the global `fetch` (not `app.alertManager` — see "Ack/Silence"
+  above) for ack/silence-proxy tests: success, no-token-configured
+  (fails fast, never calls fetch), non-ok HTTP response, and
+  network/fetch failure. Done — `test/alertManagerClient.test.js`,
+  `test/routes.test.js`.
 - Live verification: install `signalk-alert-manager` alongside this
-  plugin in the same scratch `signalk-server` sandbox we've used
-  before, raise a real alert via its REST API, confirm our plugin
-  picks it up from `alerts.*`, renders the right tone/priority, that
-  escalating a warning triggers an immediate re-announcement, and that
-  acknowledging through *our* endpoint is reflected in *alert
-  manager's* own `/alerts/{id}` — proving the single-source-of-truth
-  property actually holds, not just that our code compiles.
+  plugin in the same scratch `signalk-server` sandbox used throughout
+  this project, raise a real alert via its REST API, confirm this
+  plugin picks it up from `alerts.*` and renders the right
+  tone/priority, and that acknowledging/silencing through *our*
+  endpoints is reflected in *alert manager's* own `/alerts/{id}`
+  (`acknowledgedAt` set, `state` updated) and back in our own
+  `/active` via the resulting delta. **Done** — this is exactly the
+  verification that surfaced the `app.alertManager` bug in the first
+  place, and re-run successfully end-to-end once the REST client
+  replaced it (raised alert → our `/active` showed it correctly →
+  our `/acknowledge` call → alert manager's own record showed
+  `acknowledgedAt` → our `/active` showed `acknowledged` → same for
+  `/silence` on a second alert). Escalation specifically (a priority
+  bump on an already-seen alert triggering an immediate
+  re-announcement) is covered by unit tests
+  (`test/alertQueue.test.js`) but not yet re-confirmed live.
 
 ## Suggested implementation order
 
@@ -288,10 +358,12 @@ The five open questions above have been decided:
 4. Escalation → immediate re-announcement (`AlertQueue` changes to
    bypass the repeat-interval gate on a priority increase for an
    already-seen `id`).
-5. Ack/silence proxy to `app.alertManager` (keeping the webapp's own
-   buttons, per decision 5), with startup graceful-degradation and
-   appears-later detection. Remove/disable `lib/ackListener.js`'s old
-   PUT-handler/poll-fallback path.
+5. Ack/silence proxy to alert manager's REST API (`app.alertManager`
+   turned out to be unreachable, see "Ack/Silence" above; keeping
+   the webapp's own buttons, per decision 5), with a startup warning
+   if no `alertManagerToken` is configured. Remove/disable
+   `lib/ackListener.js`'s old PUT-handler/poll-fallback path (deleted
+   outright).
 6. Remove `pinnedEmergencyAlarmPaths`.
 7. Update all docs (`docs/design.md`, `README.md`, `docs/openApi.json`,
    `CHANGELOG.md`) to match the decisions above.

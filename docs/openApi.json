@@ -177,7 +177,7 @@
     },
     "/plugins/signalk-imo-alerts/acknowledge": {
       "post": {
-        "summary": "Fully acknowledge an active alert (stops repeats until state changes again)",
+        "summary": "Acknowledge an active alert - proxies to signalk-alert-manager's own REST API (POST /plugins/signalk-alert-manager/alerts/{id}/acknowledge) using the configured alertManagerToken. Alert manager is the single source of truth; this plugin's own state updates from the resulting alerts.* delta, not from this call directly.",
         "requestBody": {
           "required": true,
           "content": {
@@ -192,13 +192,16 @@
         },
         "responses": {
           "200": { "description": "Accepted" },
-          "400": { "description": "Invalid request body" }
+          "400": { "description": "Invalid request body, or no alertManagerToken configured" },
+          "404": { "description": "No known alert for that path (nothing has been seen on alerts.* for it)" },
+          "401": { "description": "alert manager rejected the token" },
+          "503": { "description": "Could not reach signalk-alert-manager" }
         }
       }
     },
     "/plugins/signalk-imo-alerts/silence": {
       "post": {
-        "summary": "Temporarily silence an active alert (repeat resumes automatically unless also acknowledged - MSC.302(87) silenced vs. acknowledged states)",
+        "summary": "Temporarily silence an active alert - proxies to signalk-alert-manager's own REST API (POST /plugins/signalk-alert-manager/alerts/{id}/silence). Repeat resumes automatically unless also acknowledged (MSC.302(87) silenced vs. acknowledged states).",
         "requestBody": {
           "required": true,
           "content": {
@@ -206,14 +209,23 @@
               "schema": {
                 "type": "object",
                 "required": ["path"],
-                "properties": { "path": { "type": "string" } }
+                "properties": {
+                  "path": { "type": "string" },
+                  "durationSeconds": {
+                    "type": "number",
+                    "description": "Silence duration in seconds. If omitted, alert manager applies its own configured default for the alert's priority."
+                  }
+                }
               }
             }
           }
         },
         "responses": {
           "200": { "description": "Accepted" },
-          "400": { "description": "Invalid request body" }
+          "400": { "description": "Invalid request body, or no alertManagerToken configured" },
+          "404": { "description": "No known alert for that path (nothing has been seen on alerts.* for it)" },
+          "401": { "description": "alert manager rejected the token" },
+          "503": { "description": "Could not reach signalk-alert-manager" }
         }
       }
     }

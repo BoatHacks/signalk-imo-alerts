@@ -5,6 +5,64 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed (alerts-only branch)
+
+- **Switched data source from `notifications.*` to `alerts.*`**,
+  published by [signalk-alert-manager](https://github.com/hatlabs/signalk-alert-manager).
+  See `docs/alerts-only-plan.md` for the full plan and decisions.
+  `signalk-alert-manager` is now a hard dependency, declared via
+  `signalk.requires` in `package.json`.
+  - `lib/priority.js`: priority now comes directly from alert
+    manager's own `caution`/`warning`/`alarm`/`emergency` field
+    instead of being inferred from Signal K notification states.
+    Removed `pinnedEmergencyAlarmPaths` entirely - alert manager
+    already has a genuine Emergency tier, no pinning hack needed.
+  - `index.js`: subscribes to `alerts.*` instead of `notifications.*`.
+    New heartbeat dedup (a repeat delta with unchanged id/priority/
+    state/message/silenced doesn't re-trigger playback) and full
+    IEC 62923 lifecycle handling (`unacknowledged`, `acknowledged`,
+    `rtn-unacknowledged`, `normal`).
+  - `lib/alertQueue.js`: a priority escalation (e.g. alert manager
+    auto-escalating an unacknowledged warning to alarm) now forces an
+    immediate re-announcement rather than waiting out the normal
+    repeat interval - including a fix for the self-escalation edge
+    case (the currently-playing entry escalating mid-announcement).
+  - `lib/templates.js`: rebuilt around alert manager's `alert` object
+    shape instead of a Signal K `notification`. Dropped
+    `humanizePath` (alert manager's `message` is always present) and
+    numeric/`displayUnits` interpolation (removed the now-dead
+    `lib/units.js`). Added per-priority configurable phrasing for
+    `rtn-unacknowledged` alerts (`cautionRtnPhrasing` /
+    `warningRtnPhrasing` / `alarmRtnPhrasing` /
+    `emergencyAlarmRtnPhrasing`).
+  - `/acknowledge` and `/silence`: now proxy to alert manager's REST
+    API (`lib/alertManagerClient.js`) instead of mutating our own
+    queue directly - alert manager is the single source of truth,
+    our queue reflects the resulting `alerts.*` delta the same way
+    any other state change does. **Note**: alert manager's own
+    documented plugin API (`app.alertManager`) turned out to be
+    structurally unreachable from other plugins - confirmed live
+    against a real server and independently upstream
+    (hatlabs/signalk-alert-manager#104/#106) - see
+    [BoatHacks/signalk-imo-alerts#1](https://github.com/BoatHacks/signalk-imo-alerts/issues/1).
+    A new `alertManagerToken` config setting (a user-generated Signal
+    K access token) is required for ack/silence to work; reading
+    `alerts.*` works without one.
+  - Deleted `lib/ackListener.js` and its test - the PUT-handler/
+    poll-fallback reconciliation approach it implemented for
+    `notifications.*` has no equivalent need under `alerts.*`, where
+    alert manager already owns lifecycle reconciliation.
+  - All live-verified against a real `signalk-server` +
+    `signalk-alert-manager` pairing: raised alerts via alert
+    manager's actual REST API, confirmed correct pickup/priority/
+    message in our `/active`, and confirmed acknowledging/silencing
+    through our endpoints correctly updated alert manager's own
+    record and round-tripped back to our `/active` via the resulting
+    delta.
+  - 76/76 tests passing (`test/priority.test.js`,
+    `test/alertQueue.test.js`, `test/templates.test.js`,
+    `test/routes.test.js`, new `test/alertManagerClient.test.js`).
+
 ### Fixed
 
 - The webapp spoke real active alerts (from `notifications.*`) but

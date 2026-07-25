@@ -1,12 +1,24 @@
 # signalk-imo-alerts — Design
 
+> **On the `alerts-only` branch**: this document was written for the
+> `notifications.*`-based design and still applies to everything about
+> tone patterns, voice/TTS, message template mechanics, and playback.
+> It does **not** apply to where alerts come from or how their
+> lifecycle (priority, acknowledge, silence) is handled — that's
+> `alerts.*` via signalk-alert-manager now, not `notifications.*`.
+> See [docs/alerts-only-plan.md](alerts-only-plan.md) for the
+> authoritative, current version of anything this document says about
+> priority mapping, ack/silence, or the data source.
+
 ## Purpose
 
 A standalone Signal K plugin that produces spoken announcements for
-`notifications.*` state changes, harmonizing terminology and alert
+alert state changes, harmonizing terminology and alert
 behavior with IMO/IEC bridge alert conventions where they apply. Its
 scope also includes generating the audible tone patterns specified
 in IMO A.1021(26) Table 7.2, played ahead of the spoken message.
+(On `main`, alerts come from `notifications.*`; on `alerts-only`,
+from `alerts.*` — see the notice above.)
 
 ## Regulatory grounding
 
@@ -54,6 +66,14 @@ than directly specified by them, that's called out explicitly.
 
 ## Priority mapping
 
+> **On `alerts-only`**: this section describes `main`'s approach
+> (inferring priority from Signal K notification states, plus a
+> pinned-path hack for a genuine Emergency tier). On `alerts-only`,
+> priority comes directly from alert manager's own `priority` field
+> (`caution`/`warning`/`alarm`/`emergency`) — no inference, no
+> pinning, see `docs/alerts-only-plan.md`, "Priority mapping (new,
+> direct)". The table below is `main`'s design only.
+
 Signal K's native four states don't map 1:1 onto MSC.302(87)'s
 priorities, so the mapping is explicit rather than assumed:
 
@@ -74,6 +94,15 @@ that distinction shouldn't be inferred purely from state.
 
 ## States: acknowledge vs. silence
 
+> **On `alerts-only`**: acknowledge/silence come from alert manager's
+> own IEC 62923 lifecycle (`alerts.*` delta `state` +`silenced`
+> fields), not from watching arbitrary Signal K paths for a PUT/method
+> change. This plugin's own `/acknowledge`/`/silence` REST endpoints
+> proxy to alert manager's REST API rather than mutating local state -
+> see `docs/alerts-only-plan.md`, "Ack/Silence: delegate, don't own".
+> `lib/ackListener.js` (described below) has been deleted on this
+> branch. The Silence-vs-Acknowledge distinction itself is unchanged.
+
 Following MSC.302(87)'s distinct `Active-silenced` vs.
 `Active-acknowledged` states, the plugin distinguishes two actions:
 
@@ -83,13 +112,22 @@ Following MSC.302(87)'s distinct `Active-silenced` vs.
 - **Acknowledge**: stops repeats fully until the underlying state
   changes again.
 
-Both are detected by listening for the corresponding signal on any
-path (PUT handler, subscription with `sourcePolicy: 'all'`, poll
-fallback) — the same reconciliation approach used in
-`signalk-dead-mans-switch`, rather than requiring interaction through
-this plugin's own webapp specifically.
+On `main`: both are detected by listening for the corresponding
+signal on any path (PUT handler, subscription with
+`sourcePolicy: 'all'`, poll fallback) — the same reconciliation
+approach used in `signalk-dead-mans-switch`, rather than requiring
+interaction through this plugin's own webapp specifically.
 
 ## Message templates
+
+> **On `alerts-only`**: `resolveMessage` now takes alert manager's
+> `alert` object instead of a Signal K `notification`. The generic
+> fallback is simpler (alert manager's `message` is always present,
+> so there's no `humanizePath` fallback), and numeric/`displayUnits`
+> interpolation was dropped entirely (`lib/units.js` deleted) since
+> `alerts.*` has no single numeric value+unit field the way a
+> notification's `.value` can carry. See `docs/alerts-only-plan.md`,
+> "Message resolution".
 
 - **Generic fallback**: `"{priority}. {plain-language path
   description}."` — covers any path without a specific override.
@@ -206,6 +244,9 @@ same priority):
   interrupting each other.
 
 ## Scope
+
+> **On `alerts-only`**: subscribes to `alerts.*` instead — see the
+> notice at the top of this document.
 
 Subscribes to **self-vessel `notifications.*` only** — no
 other-vessel / `received.*` handling (that's `notification-dispatcher`'s
@@ -419,9 +460,11 @@ baseline for the 3.a–3.d waveforms, for consistency). See
   disconnection or power down at any time and in any alert
   condition with a result of a consistent alert state." The
   responsibility for a consistent post-restart state sits with the
-  **reconnection to the source** (re-subscribing to
-  `notifications.*`, which reflects Signal K's own current
-  notification state), not with this plugin maintaining its own
+  **reconnection to the source** (re-subscribing to `alerts.*` on
+  `main`'s `notifications.*` equivalent, which reflects the current
+  state directly - on `alerts-only` this is arguably even stronger,
+  since alert manager itself persists alert state across restarts via
+  SQLite), not with this plugin maintaining its own
   local copy. On restart, the plugin re-subscribes and gets the
   actual current state directly — a local queue file would be a
   second, potentially stale source of truth, which the standard's
