@@ -107,7 +107,7 @@ config and the whole "is this path pinned" mechanism can be deleted.
 | `unacknowledged` | Voice/tone as normal — `queue.upsert(...)` |
 | `unacknowledged` + `silenced: true` | Treat as our existing `SILENCED` — stop repeating until `silencedUntil` (or a fresh unsilenced delta) |
 | `acknowledged` | Treat as our existing `ACKNOWLEDGED` — `queue.acknowledge(...)` |
-| `rtn-unacknowledged` | **Open question** — condition cleared but not yet acked. Options: (a) keep repeating the original alert audio since it's still formally unacknowledged, (b) switch to a distinct "condition cleared, please acknowledge" phrasing. Leaning (b) for clarity, but this needs a decision, not a default. |
+| `rtn-unacknowledged` | Condition cleared but not yet acked — still voiced (repeat continues). Whether it repeats the original message verbatim or a distinct "condition cleared, please acknowledge"-style phrase is **configurable per priority** — see Decisions below. |
 | `normal` | Terminal — `queue.remove(path)`. README: *"the full alert object is published with `state: 'normal'`... consumers should treat `normal` as 'no active alert for this path'."* |
 
 ## Heartbeat dedup
@@ -160,9 +160,8 @@ Two ways to call it, in preference order:
 This also means `lib/ackListener.js`'s per-path PUT-handler
 registration and poll-fallback become dead code under alerts-only —
 alert manager already owns PUT-equivalent handling for its own domain.
-Whether to delete it outright or keep it dormant behind a config
-toggle (in case someone wants notifications.* AND alerts.*
-simultaneously) is an open question below.
+Per the exclusive-alerts-only decision below (no dual-mode), this gets
+deleted outright rather than kept dormant behind a toggle.
 
 ## Message resolution
 
@@ -188,58 +187,68 @@ would be a reasonable future enhancement, not required for this plan.
 - **Removed**: `pinnedEmergencyAlarmPaths` config + matching logic in
   `lib/priority.js` (`isPinned`) — superseded by alert manager's own
   explicit `emergency` priority.
-- **Removed or dormant**: `lib/ackListener.js`'s PUT-handler-per-path
-  registration and poll fallback — superseded by observing `alerts.*`
-  deltas directly; ack/silence *actions* redirect to alert manager's
-  API instead.
+- **Removed**: `lib/ackListener.js`'s PUT-handler-per-path registration
+  and poll fallback — superseded by observing `alerts.*` deltas
+  directly; ack/silence *actions* redirect to alert manager's API
+  instead.
 - **Changed**: `handleNotification`/`handleDelta` in `index.js` —
-  subscribe to `alerts.*` instead of (or alongside — see open
-  questions) `notifications.*`; parse the alert-manager delta shape
-  instead of the notification shape.
+  subscribe to `alerts.*` instead of `notifications.*`; parse the
+  alert-manager delta shape instead of the notification shape.
 - **Changed**: `resolveMessage` in `lib/templates.js` — drop
-  `humanizePath` fallback and `displayUnits` interpolation for the
-  alerts.* path (may still be relevant if notifications.* support is
-  kept as a fallback mode — see below).
+  `humanizePath` fallback and `displayUnits` interpolation entirely
+  (alert manager's `message` is always present, and `data` isn't a
+  value+unit pair the way a notification's `.value` can be).
 - **Changed**: `/acknowledge` and `/silence` REST endpoints — become
   thin proxies to `app.alertManager`, not direct `queue.acknowledge/
   silence` calls.
 - **Unchanged**: `AlertQueue`'s priority-preemption/chronological
   queueing, repeat scheduling, tone/voice rendering, `musterListCodes`
   path matching, all of `lib/tones.js`/`lib/tonePattern.js`/
-  `lib/tts.js`, the whole webapp test-mode infrastructure. This plan
-  only touches *where alerts come from and who owns their lifecycle*,
-  not how we render them.
+  `lib/tts.js`, the whole webapp test-mode infrastructure (buttons
+  kept, per decision 5 below). This plan only touches *where alerts
+  come from and who owns their lifecycle*, not how we render them.
 
-## Open questions (need a decision before/while implementing)
+## Decisions
 
-1. **Exclusive or dual-mode?** The branch is named `alerts-only`,
-   implying `notifications.*` support is dropped entirely on this
-   branch. Is that the actual intent, or should this become a
-   configurable mode (`alertSource: 'notifications' | 'alerts'`) so
-   the plugin still works for people without alert manager installed?
-   Dual-mode is more code (two parsers, two priority-resolution paths)
-   for a real ongoing maintenance cost; alerts-only is a clean break
-   but makes alert manager a hard dependency.
-2. **`rtn-unacknowledged` phrasing** — repeat the original message, or
-   speak something distinct like "condition cleared, please
-   acknowledge"?
-3. **Graceful degradation if alert manager isn't installed/enabled** —
-   `app.alertManager` will be `undefined`. Should the plugin refuse to
-   start with a clear error, or start but do nothing until alert
-   manager appears? Given the branch's premise (alerts.* as the *only*
-   source), silently doing nothing seems worse than an explicit
-   startup warning via `app.setPluginStatus`/`app.debug`.
-4. **Escalation double-handling** — alert manager auto-escalates
-   unacknowledged warnings to alarm after a timeout and publishes that
-   as a priority change on the same path. Our queue's preemption logic
-   already reacts correctly to a priority change on `upsert` (higher
-   priority preempts), so this should "just work" without special
-   casing — worth confirming with a test rather than assuming.
-5. **Does our own webapp still need ack/silence buttons**, given alert
-   manager ships its own Web UI (`Alert List`, `Alert Banner`, etc.)?
-   Keeping ours as a thin proxy is cheap and keeps the "preview/test"
-   webapp self-contained, but it's worth asking whether duplicating
-   that control surface is desired.
+The five open questions above have been decided:
+
+1. **Exclusive alerts-only.** No `notifications.*` fallback/dual-mode —
+   a clean break, matching the branch's premise. Alert manager becomes
+   a hard dependency of this branch.
+2. **`rtn-unacknowledged` phrasing is configurable per priority.** Not
+   a single fixed choice — each priority (Caution/Warning/Alarm/
+   Emergency Alarm) gets its own setting for whether an `rtn-
+   unacknowledged` alert repeats the original message verbatim or
+   speaks a distinct "condition cleared, please acknowledge"-style
+   phrase. Mirrors the existing per-priority tone configurability
+   (`cautionTone`/`warningTone`/`alarmTone`/`emergencyAlarmTone`) —
+   same pattern, new axis.
+3. **Graceful degradation: start, don't refuse.** If
+   `app.alertManager` is `undefined` at startup, the plugin starts
+   anyway, logs a clear warning (`app.debug` and/or
+   `app.setPluginStatus`), and does nothing until alert manager
+   actually appears — rather than refusing to start outright. Needs a
+   way to detect alert manager appearing *after* our own startup too
+   (it's a separate plugin; load order between two plugins in the same
+   signalk-server isn't guaranteed), not just a one-time check.
+4. **Escalation re-announces immediately.** When alert manager
+   auto-escalates a warning to alarm (or any priority bump on the same
+   alert `id`), treat it as a fresh higher-priority occurrence and
+   trigger a new tone+voice announcement right away, rather than
+   waiting for the normal repeat cycle to notice the priority changed.
+   This means the priority-change case needs to explicitly reset
+   `lastAnnounced`/bypass the repeat-interval gate in `AlertQueue`,
+   not just rely on `upsert`'s existing preemption logic (preemption
+   handles *interrupting current playback*, not *whether a new
+   announcement is due at all* for an already-`lastAnnounced` entry —
+   worth double-checking against the actual `_reconsider`/`upsert`
+   logic during implementation, since escalation is a same-`id`
+   `upsert` with a higher priority, and the current code's repeat gate
+   keys off `lastAnnounced`, not priority-unchanged-since-last-time).
+5. **Keep our own ack/silence buttons**, as a thin proxy to alert
+   manager's API (`app.alertManager.acknowledgeAlert`/`silenceAlert`).
+   Not deferring entirely to alert manager's own Web UI — the
+   preview/test webapp stays self-contained.
 
 ## Testing / verification plan
 
@@ -247,14 +256,18 @@ would be a reasonable future enhancement, not required for this plan.
   augmenting the current notification-shaped ones in
   `test/index`-adjacent tests), priority-string-to-`PRIORITY` mapping,
   heartbeat-dedup behavior (same id/priority/message twice → no
-  re-trigger), `rtn-unacknowledged`/`normal` transitions.
+  re-trigger), `rtn-unacknowledged`/`normal` transitions, per-priority
+  `rtn-unacknowledged` phrasing config, escalation forcing an immediate
+  re-announcement (not just a silent priority bump).
 - Mock `app.alertManager` for ack/silence-proxy tests (success case,
-  and the "alert manager not installed" case).
+  and the "alert manager not installed" case) and for the
+  appears-after-our-startup detection case.
 - Live verification: install `signalk-alert-manager` alongside this
   plugin in the same scratch `signalk-server` sandbox we've used
   before, raise a real alert via its REST API, confirm our plugin
-  picks it up from `alerts.*`, renders the right tone/priority, and
-  that acknowledging through *our* endpoint is reflected in *alert
+  picks it up from `alerts.*`, renders the right tone/priority, that
+  escalating a warning triggers an immediate re-announcement, and that
+  acknowledging through *our* endpoint is reflected in *alert
   manager's* own `/alerts/{id}` — proving the single-source-of-truth
   property actually holds, not just that our code compiles.
 
@@ -264,10 +277,16 @@ would be a reasonable future enhancement, not required for this plan.
    changes yet — just get tone/voice triggering on the right priority
    from the new shape).
 2. Heartbeat dedup.
-3. `normal`/`acknowledged`/`rtn-unacknowledged` state handling.
-4. Ack/silence proxy to `app.alertManager`, remove/disable
-   `lib/ackListener.js`'s old path.
-5. Remove `pinnedEmergencyAlarmPaths`.
-6. Update all docs (`docs/design.md`, `README.md`, `docs/openApi.json`,
-   `CHANGELOG.md`) and decide the open questions above explicitly
-   rather than by accident.
+3. `normal`/`acknowledged`/`rtn-unacknowledged` state handling,
+   including the per-priority `rtn-unacknowledged` phrasing config.
+4. Escalation → immediate re-announcement (`AlertQueue` changes to
+   bypass the repeat-interval gate on a priority increase for an
+   already-seen `id`).
+5. Ack/silence proxy to `app.alertManager` (keeping the webapp's own
+   buttons, per decision 5), with startup graceful-degradation and
+   appears-later detection. Remove/disable `lib/ackListener.js`'s old
+   PUT-handler/poll-fallback path.
+6. Remove `pinnedEmergencyAlarmPaths`.
+7. Update all docs (`docs/design.md`, `README.md`, `docs/openApi.json`,
+   `CHANGELOG.md`) to match the decisions above.
+
