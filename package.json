@@ -11,6 +11,9 @@
     "signalk-webapp",
     "signalk"
   ],
+  "signalk": {
+    "requires": ["signalk-alert-manager"]
+  },
   "author": "Tobias Rosenstock",
   "license": "Apache-2.0",
   "repository": {

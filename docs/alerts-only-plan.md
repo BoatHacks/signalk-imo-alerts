@@ -214,7 +214,13 @@ The five open questions above have been decided:
 
 1. **Exclusive alerts-only.** No `notifications.*` fallback/dual-mode —
    a clean break, matching the branch's premise. Alert manager becomes
-   a hard dependency of this branch.
+   a hard dependency of this branch. Declared in `package.json` via
+   `signalk.requires: ["signalk-alert-manager"]` — Signal K's AppStore
+   mechanism for a mandatory companion plugin (gives users an "Install
+   required plugins" button if it's missing). Deliberately *not* a
+   `peerDependencies` entry: Signal K's own publishing docs say not to,
+   since it interacts badly with the plugin tree resolver — `requires`
+   is AppStore-only semantics, not an npm-level dependency.
 2. **`rtn-unacknowledged` phrasing is configurable per priority.** Not
    a single fixed choice — each priority (Caution/Warning/Alarm/
    Emergency Alarm) gets its own setting for whether an `rtn-
