@@ -225,10 +225,74 @@ duplicated client-side.
 
 ## Repeat behavior
 
+> **On `alerts-only`**: this section is fully superseded by the
+> per-priority model below (`lib/alertQueue.js`, `repeatPolicyForPriority`
+> in `index.js`). The "one flat interval for everything" description
+> that follows describes `main` only.
+
 Configurable repeat interval, defaulting to **30 seconds** — this
 default mirrors MSC.302(87)'s own figure for an unacknowledged
 audible signal restarting after 30 seconds. Repeat can also be
 disabled per severity.
+
+### `alerts-only`: per-priority repeat policy
+
+Checking the actual IEC BAM mariner-guidance document more closely
+(not just the 30s figure above, which is about a *silenced* signal
+resuming) revealed it specifies **per-priority tone repeat
+intervals** distinct from that: Alarm-tier tones repeat every
+**7–10 s**, Warning-tier every **15 s to 5 min**, while it says
+almost nothing about *voice* repetition specifically (the only
+mention of speech at all is "the rules allow optional speech output
+of alerts" — no cadence given). None of this maps cleanly onto a
+single flat interval, so the repeat model is priority-specific,
+implemented as a `mode` per `PRIORITY` (`lib/alertQueue.js`'s
+`getRepeatPolicy`):
+
+- **Warning** (and, by extension though not explicitly specified —
+  see the caveat below, Caution): `'once'` — tone+voice play a
+  single time, never repeat on their own. The alert stays logically
+  active/unacknowledged in the queue; it just doesn't make further
+  noise. **Caveat**: the actual instruction only specified Warning
+  and Alarm/Emergency Alarm behavior; Caution's `'once'` treatment
+  is this plugin's own assumption by extension, not something
+  explicitly requested — worth confirming.
+- **Alarm**: `'interval'` — repeats at a configurable
+  `alarmRepeatIntervalSeconds` (default 30s, `plugin.schema`) while
+  unacknowledged.
+- **Emergency alarm**: `'continuous'` — repeats back-to-back with no
+  gap between iterations, always on, not configurable/disableable
+  given the severity.
+
+For `'interval'` and `'continuous'`, **silencing stops playback
+immediately and does not auto-resume on any local timer** — the old
+`main`-branch behavior (a silenced alert automatically un-silencing
+itself after the repeat interval elapsed) is gone entirely.
+Resumption only happens when an external `alerts.*` delta reports
+`silenced: false` again, driving a fresh `upsert()` call. This is a
+deliberate fit with the alerts-only architecture: alert manager
+already owns the actual silence-duration timer (`silencedUntil`,
+persisted); this plugin re-running its own separate timer on top
+would just be a second, potentially-inconsistent clock for the same
+thing.
+
+**Live-tested via three separate live-server checks** (not just unit
+tests): a Warning stayed at exactly one playback attempt after 13
+real seconds; an Alarm's second attempt landed ~30.9s after its
+first (matching the 30s default); an Emergency Alarm looped 149
+times in 3 real seconds when tone/voice playback failed instantly
+(no `aplay` installed in the test sandbox).
+
+That last number is itself a genuine operational caveat worth
+flagging, found via this same live check, not something to bury:
+**`'continuous'` mode has no pacing of its own — it relies entirely
+on real playback duration (several seconds for actual tone+voice
+audio) to naturally throttle the loop.** If TTS/audio is broken or
+misconfigured on a real installation, an active Emergency Alarm
+could spin at tens of iterations per second, consuming CPU and
+flooding logs, rather than failing gracefully at a bounded rate. Not
+fixed here — flagged for a decision on whether `'continuous'` needs
+a minimum floor between iterations regardless of playback outcome.
 
 ## Concurrency (multiple simultaneous active alerts)
 

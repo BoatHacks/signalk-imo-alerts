@@ -7,6 +7,36 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed (alerts-only branch)
 
+- **Per-priority repeat behavior**, replacing the single flat repeat
+  interval: Warning (and, by extension - not explicitly specified,
+  flagged as an assumption - Caution) plays tone+voice once and never
+  repeats on its own; Alarm repeats at a configurable
+  `alarmRepeatIntervalSeconds` (default 30s); Emergency Alarm repeats
+  continuously with no gap between iterations, always on. For Alarm
+  and Emergency Alarm, silencing now stops playback immediately and
+  **never auto-resumes on a local timer** - the old behavior (a
+  silenced alert automatically un-silencing itself after the repeat
+  interval elapsed) is gone; resumption only happens when a fresh
+  `alerts.*` delta reports `silenced: false`, matching alert manager
+  being the sole owner of the actual silence-duration clock.
+  `lib/alertQueue.js`'s `getRepeatPolicy` replaces the old
+  `repeatIntervalSeconds`/`repeatEnabled` constructor options.
+  Fixed two real bugs surfaced while writing the test suite for this:
+  a naive continuous-loop reset let one Emergency Alarm starve a
+  same-priority sibling forever (fixed with a separate `queuedAt`
+  ordering field, distinct from `firstSeen`); that fix's first attempt
+  used `Date.now()` for `queuedAt`, which isn't fine-grained enough to
+  reliably break ties between entries queued in the same millisecond
+  (switched to a monotonic sequence counter). Live-verified via three
+  separate checks against the real server: Warning stayed at exactly
+  one attempt after 13 real seconds, Alarm's second attempt landed
+  ~30.9s after the first (default interval), Emergency Alarm looped
+  149 times in 3 real seconds - which also surfaced a genuine
+  operational caveat worth flagging rather than silently fixing:
+  `'continuous'` mode has no pacing of its own beyond real playback
+  duration, so a misconfigured/broken audio setup could spin the loop
+  very fast rather than failing at a bounded rate.
+
 - **Switched data source from `notifications.*` to `alerts.*`**,
   published by [signalk-alert-manager](https://github.com/hatlabs/signalk-alert-manager).
   See `docs/alerts-only-plan.md` for the full plan and decisions.

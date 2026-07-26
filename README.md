@@ -38,8 +38,11 @@ Implemented so far:
   always present) + per-path overrides, with per-priority configurable
   phrasing for `rtn-unacknowledged` alerts (`lib/templates.js`)
 - Alert queue: priority preemption, same-priority chronological
-  queueing, shared silence/acknowledge state, configurable repeat
-  (`lib/alertQueue.js`)
+  queueing, shared silence/acknowledge state, per-priority repeat
+  policy (`lib/alertQueue.js`) - Warning plays once, Alarm repeats at
+  a configurable interval, Emergency Alarm loops continuously with no
+  gap; silencing stops any of these immediately and only resumes on
+  an explicit un-silence transition, never a local timer
 - espeak-ng TTS wrapper with graceful fallback (`lib/tts.js`)
 - Tone pattern lookup and playback for IMO A.1021(26) Table 7.2
   (`lib/tones.js`), with the actual clips generated via
@@ -84,7 +87,7 @@ dependency - not yet decided).
 npm test
 ```
 
-76 tests currently passing. To regenerate the built-in tone clips
+83 tests currently passing. To regenerate the built-in tone clips
 (`sounds/tones/*.wav`) after changing `scripts/generate_tones.py`:
 
 ```sh

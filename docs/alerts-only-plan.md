@@ -10,6 +10,17 @@ plugin-API integration this plan originally called for
 [BoatHacks/signalk-imo-alerts#1](https://github.com/BoatHacks/signalk-imo-alerts/issues/1).
 Ack/silence go through alert manager's REST API instead.
 
+A related follow-up refinement, also implemented: repeat behavior is
+now per-priority rather than one flat interval (Warning plays once,
+Alarm repeats at a configurable interval, Emergency Alarm loops
+continuously), and — directly because alert manager is now the single
+source of truth — silencing an Alarm/Emergency Alarm no longer
+auto-resumes on any local timer; it only resumes when a fresh
+`alerts.*` delta says so. See `docs/design.md`, "Repeat behavior" for
+the full detail (including a real operational caveat this surfaced
+during live testing, not silently fixed: `'continuous'` mode has no
+pacing of its own beyond real playback duration).
+
 Branch: `alerts-only`. Goal: stop deriving priority/state from raw
 `notifications.*` deltas and MSC.302(87) guesswork, and instead consume
 `alerts.*` deltas published by [hatlabs/signalk-alert-manager][sam] as the

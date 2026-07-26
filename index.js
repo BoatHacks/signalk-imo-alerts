@@ -69,18 +69,14 @@ module.exports = function (app) {
           browser: { type: 'boolean', title: 'Play in companion webapp', default: true }
         }
       },
-      repeat: {
-        type: 'object',
-        title: 'Repeat',
-        properties: {
-          enabled: { type: 'boolean', title: 'Repeat until acknowledged', default: true },
-          intervalSeconds: {
-            type: 'number',
-            title:
-              'Repeat interval (seconds) - default mirrors MSC.302(87)\'s 30s figure for an unacknowledged signal',
-            default: 30
-          }
-        }
+      alarmRepeatIntervalSeconds: {
+        type: 'number',
+        title:
+          'Alarm-priority repeat interval (seconds) - repeats tone+voice at this interval while unacknowledged. ' +
+          'Warning/Caution play once (no repeat); Emergency alarm repeats continuously with no gap. ' +
+          'All three stop immediately when silenced and only resume on an explicit un-silence, never on a timer ' +
+          '(alert manager owns the actual silence duration) - default mirrors MSC.302(87)\'s 30s figure.',
+        default: 30
       },
       messageOverrides: {
         type: 'array',
@@ -269,8 +265,7 @@ module.exports = function (app) {
     queue = new AlertQueue({
       announce: (entry) => announce(entry),
       interrupt: () => interruptPlayback(),
-      repeatIntervalSeconds: config.repeat.intervalSeconds,
-      repeatEnabled: config.repeat.enabled
+      getRepeatPolicy: (priority) => repeatPolicyForPriority(priority)
     })
 
     // Graceful degradation (see docs/alerts-only-plan.md, decision 3):
@@ -334,10 +329,7 @@ module.exports = function (app) {
         server: o.playback?.server !== false,
         browser: o.playback?.browser !== false
       },
-      repeat: {
-        enabled: o.repeat?.enabled !== false,
-        intervalSeconds: o.repeat?.intervalSeconds || 30
-      },
+      alarmRepeatIntervalSeconds: o.alarmRepeatIntervalSeconds || 30,
       messageOverrides: o.messageOverrides || [],
       pronunciationSubstitutions: o.pronunciationSubstitutions || [],
       musterListCodes: o.musterListCodes || [],
@@ -461,6 +453,24 @@ module.exports = function (app) {
   function alertManagerClient () {
     const port = Number(process.env?.PORT) || app.config?.settings?.port || 3000
     return createAlertManagerClient({ port, token: config.alertManagerToken })
+  }
+
+  // Per-priority repeat behavior (see docs/alerts-only-plan.md and
+  // lib/alertQueue.js's class doc comment for the full rationale):
+  //  - Warning/Caution: play once, no repeat.
+  //  - Alarm: repeat at the configured interval while unacknowledged.
+  //  - Emergency alarm: repeat continuously (no gap) while unacknowledged -
+  //    always on, not configurable/disableable, given the severity.
+  // All three stop immediately when silenced and only resume on an
+  // explicit un-silence transition, never on a local timer.
+  function repeatPolicyForPriority (priority) {
+    if (priority === PRIORITY.EMERGENCY_ALARM) {
+      return { mode: 'continuous' }
+    }
+    if (priority === PRIORITY.ALARM) {
+      return { mode: 'interval', intervalSeconds: config.alarmRepeatIntervalSeconds }
+    }
+    return { mode: 'once' } // Caution, Warning
   }
 
   function priorityToneConfig () {
