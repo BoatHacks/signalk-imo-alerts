@@ -61,13 +61,63 @@ solves at the source:
    layer: given the current state of an alert, decide what sound to
    make; when the user acts, tell alert manager, not our own queue.
 
-Alert manager's own audio is intentionally basic — "Browser-based audio
-alerts with different tones per priority level" with no mention of
-IMO A.1021(26) tone patterns, no server-side/local-speaker path, and no
-TTS. That's exactly this plugin's reason to exist. The plan below keeps
-our tone/voice rendering (the actual value this plugin adds) and
+Alert manager's own audio, confirmed precisely (see "Alert manager's
+own audio, vs. ours" below rather than the vague characterization
+this paragraph used to have) — browser-only, no IMO A.1021(26) tone
+patterns, no server-side/local-speaker path, and no TTS. That's
+exactly this plugin's reason to exist. The plan below keeps our
+tone/voice rendering (the actual value this plugin adds) and
 replaces our home-grown lifecycle/priority handling with alert
 manager's.
+
+## Alert manager's own audio, vs. ours
+
+Worth knowing precisely, not just "they also have some audio" —
+pulled directly from their README's own "Priority Levels" table and
+"Web UI" section, not from memory:
+
+| Priority | Alert manager's audible pattern | Frequency | Repeats until |
+|---|---|---|---|
+| Emergency | Rapid 5-pulse burst | 880 Hz | acknowledged or silenced |
+| Alarm | 3-pulse triplet | 660 Hz | acknowledged or silenced |
+| Warning | 2-pulse chime | 440 Hz | acknowledged or silenced |
+| Caution | None | — | (no acknowledgment required at all) |
+
+The whole scheme is explicitly borrowed from **IEC 60601-1-8**, a
+*medical*-alarm ergonomics standard — chosen for its tested
+priority-distinguishable tone design, not for marine regulatory
+pedigree. It's also gated by their own "Minimum Audible Priority"
+config (default `warning`), below which nothing plays regardless.
+
+**Two concrete divergences from what this plugin does, worth being
+explicit about rather than letting readers assume parity:**
+
+1. **Tone design basis differs entirely.** Alert manager's tones are
+   medical-alarm-ergonomics-derived pulse/frequency patterns with no
+   claimed connection to marine regulation. This plugin's tones are
+   IMO A.1021(26) Table 7.2 patterns (`1.a`/`1.b`/`2`/`3.a`–`3.d`),
+   grounded in (and where ungrounded, explicitly flagged against) the
+   actual regulatory text — see `docs/design.md`, "Alert tone
+   patterns". Different design lineage entirely, not a refinement of
+   each other.
+2. **Repeat behavior differs by design, not oversight.** Alert
+   manager's own audio repeats *every* audible priority
+   (Emergency/Alarm/Warning alike) until acknowledged or silenced.
+   This plugin's per-priority repeat policy (see `docs/design.md`,
+   "Repeat behavior") deliberately makes **Warning play once**, only
+   Alarm/Emergency Alarm repeat (Alarm at a configurable interval,
+   Emergency Alarm continuously) — a specific instruction, not a
+   default inherited from anywhere. If both this plugin's and alert
+   manager's own browser audio were ever active on the same device at
+   once, a Warning would be heard once from this plugin but would
+   keep sounding from alert manager's own UI until dealt with — worth
+   keeping in mind if alert manager's Web UI and this plugin's webapp
+   are ever open side by side.
+3. **Playback surface differs.** Alert manager: browser-only. This
+   plugin: local-speaker (`espeak-ng`) *and* browser, both driven by
+   the same synthesized audio (see `docs/design.md`, "Playback") —
+   the actual gap this plugin exists to fill, per "Why this is worth
+   doing" above.
 
 ## Data model comparison
 
