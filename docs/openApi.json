@@ -6,7 +6,7 @@
     "description": "Spoken alert announcements and IMO A.1021(26) alert tone patterns"
   },
   "paths": {
-    "/plugins/signalk-imo-alerts/active": {
+    "/active": {
       "get": {
         "summary": "List currently active (voiceable) alerts",
         "responses": {
@@ -32,7 +32,7 @@
         }
       }
     },
-    "/plugins/signalk-imo-alerts/options": {
+    "/options": {
       "get": {
         "summary": "List available priorities and built-in tone codes, for the test-mode form",
         "responses": {
@@ -100,7 +100,7 @@
         }
       }
     },
-    "/plugins/signalk-imo-alerts/tone-clip": {
+    "/tone-clip": {
       "get": {
         "summary": "Serve a tone clip's audio, either a built-in code, a custom pattern, or a priority's default",
         "parameters": [
@@ -116,7 +116,7 @@
         }
       }
     },
-    "/plugins/signalk-imo-alerts/test-announce": {
+    "/test-announce": {
       "post": {
         "summary": "Manually trigger a test announcement, combining any priority/tone/message/language/voice (for verifying pronunciation, volume, tone selection, and voice model before trusting it live)",
         "requestBody": {
@@ -160,7 +160,7 @@
         }
       }
     },
-    "/plugins/signalk-imo-alerts/voice-clip": {
+    "/voice-clip": {
       "get": {
         "summary": "Synthesize and serve a message's raw audio on demand (not cached - message text is usually dynamic). Used by the webapp to play the exact same audio the local speaker would.",
         "parameters": [
@@ -175,7 +175,7 @@
         }
       }
     },
-    "/plugins/signalk-imo-alerts/acknowledge": {
+    "/acknowledge": {
       "post": {
         "summary": "Acknowledge an active alert - proxies to signalk-alert-manager's own REST API (POST /plugins/signalk-alert-manager/alerts/{id}/acknowledge) using the configured alertManagerToken. Alert manager is the single source of truth; this plugin's own state updates from the resulting alerts.* delta, not from this call directly.",
         "requestBody": {
@@ -199,7 +199,7 @@
         }
       }
     },
-    "/plugins/signalk-imo-alerts/silence": {
+    "/silence": {
       "post": {
         "summary": "Temporarily silence an active alert - proxies to signalk-alert-manager's own REST API (POST /plugins/signalk-alert-manager/alerts/{id}/silence). Repeat resumes automatically unless also acknowledged (MSC.302(87) silenced vs. acknowledged states).",
         "requestBody": {
