@@ -455,6 +455,13 @@ module.exports = function (app) {
     return createAlertManagerClient({ port, token: config.alertManagerToken })
   }
 
+  // /test-announce entries share the real queue (see there) under a
+  // synthetic path, so ack/silence can tell them apart from real
+  // alerts.*-backed ones that need proxying to alert manager's REST API.
+  function isTestPath (path) {
+    return path.startsWith('test.announce.')
+  }
+
   // Per-priority repeat behavior (see docs/alerts-only-plan.md and
   // lib/alertQueue.js's class doc comment for the full rationale):
   //  - Warning/Caution: play once, no repeat.
@@ -483,12 +490,19 @@ module.exports = function (app) {
   }
 
   async function announce (entry) {
-    const clipPath = resolveClipPath(entry.priority, entry.path, config.musterListCodes, priorityToneConfig())
+    // entry.meta carries a per-entry override (used by /test-announce so
+    // a test can pick an arbitrary tone/language/voice regardless of
+    // configured defaults) - real alerts never set this, so they always
+    // resolve from priority/path/config as before.
+    const clipPath =
+      entry.meta && entry.meta.clipPath !== undefined
+        ? entry.meta.clipPath
+        : resolveClipPath(entry.priority, entry.path, config.musterListCodes, priorityToneConfig())
     await playAnnouncement({
       clipPath,
       message: entry.message,
-      language: config.language,
-      voice: config.serverVoice
+      language: (entry.meta && entry.meta.language) || config.language,
+      voice: (entry.meta && entry.meta.voice) || config.serverVoice
     })
   }
 
@@ -533,7 +547,21 @@ module.exports = function (app) {
               path: e.path,
               priority: e.priority,
               message: e.message,
-              state: e.state
+              state: e.state,
+              // monotonic, changes on every fresh occurrence (including a
+              // repeated manual /test-announce submission with identical
+              // priority/message) - a more robust "is this actually new"
+              // signal for the webapp than path+message, which wouldn't
+              // change on a deliberate resubmission
+              revision: e.queuedAt,
+              // only present for /test-announce entries (see there) - lets
+              // the browser reconstruct the same tone-clip URL the server
+              // used, instead of falling back to the priority default and
+              // silently mismatching a test's chosen tone override
+              toneCode: e.meta ? e.meta.toneCode : undefined,
+              tonePattern: e.meta ? e.meta.tonePattern : undefined,
+              language: e.meta ? e.meta.language : undefined,
+              voice: e.meta ? e.meta.voice : undefined
             }))
           : []
       )
@@ -670,18 +698,31 @@ module.exports = function (app) {
         return
       }
 
-      // respond immediately - server-side playback happens asynchronously
-      // and shouldn't hold the HTTP request open. spokenMessage is
-      // included so the webapp's browser-side preview can play the exact
-      // same pronunciation-substituted text via /voice-clip, without
-      // duplicating the substitution logic client-side.
       const spokenMessage = message
         ? applyPronunciation(message, config.pronunciationSubstitutions)
         : null
-      res.json({ ok: true, spokenMessage })
-      playAnnouncement({ clipPath, message: spokenMessage, language, voice }).catch((err) =>
-        app.debug(`test-announce playback error: ${err}`)
-      )
+
+      // Pushed into the SAME queue real alerts.* alerts use (one slot per
+      // priority, so different-priority tests can coexist and preempt each
+      // other the same way real alerts would) rather than a separate
+      // one-off playback path. This gets tone-then-voice playback,
+      // priority preemption, and the per-priority repeat policy for free -
+      // and critically, browser broadcast: any open webapp tab's existing
+      // /active polling picks this up and plays it exactly like a real
+      // alert, with no separate broadcast mechanism needed. clipPath/
+      // language/voice are carried as a per-entry override (entry.meta,
+      // see announce()) so a test can use an arbitrary tone/voice
+      // regardless of configured defaults - real alerts never set this.
+      const testPath = `test.announce.${priority}`
+      queue.upsert(testPath, priority, spokenMessage, {
+        clipPath,
+        toneCode: toneCode || undefined,
+        tonePattern: tonePattern || undefined,
+        language,
+        voice
+      })
+
+      res.json({ ok: true, path: testPath, spokenMessage })
     })
 
     router.post('/acknowledge', async (req, res) => {
@@ -690,6 +731,17 @@ module.exports = function (app) {
         res.status(400).json({ error: 'expected { path: string }' })
         return
       }
+
+      // /test-announce entries live in the same queue as real alerts (see
+      // there for why) but aren't backed by a real alerts.* delta, so
+      // there's no alert-manager id to proxy to - acknowledge them
+      // directly on the local queue instead.
+      if (isTestPath(alertPath)) {
+        queue.acknowledge(alertPath)
+        res.json({ ok: true })
+        return
+      }
+
       const tracked = alertTrackingByPath.get(alertPath)
       if (!tracked) {
         res.status(404).json({ error: `no known alert for path "${alertPath}"` })
@@ -717,6 +769,13 @@ module.exports = function (app) {
         res.status(400).json({ error: 'expected { path: string }' })
         return
       }
+
+      if (isTestPath(alertPath)) {
+        queue.silence(alertPath)
+        res.json({ ok: true })
+        return
+      }
+
       const tracked = alertTrackingByPath.get(alertPath)
       if (!tracked) {
         res.status(404).json({ error: `no known alert for path "${alertPath}"` })

@@ -22,7 +22,7 @@
   <p>Active alerts, updated from <code>notifications.*</code>:</p>
 
   <table>
-    <thead><tr><th>Path</th><th>Priority</th><th>Message</th><th>State</th></tr></thead>
+    <thead><tr><th>Path</th><th>Priority</th><th>Message</th><th>State</th><th>Actions</th></tr></thead>
     <tbody id="active-alerts"></tbody>
   </table>
 
@@ -30,10 +30,17 @@
     <legend>Test mode</legend>
     <p>Combine any priority, tone, message, language, and voice to
        preview exactly what an alert would sound like - without
-       waiting for a real notification. The browser plays the exact
-       same rendered audio the Signal K host would (one TTS engine
-       for both), and, if server-side playback is enabled in plugin
-       config, it plays on the host too.</p>
+       waiting for a real notification. "Play combination" pushes into
+       the same queue real alerts use, so it follows the real
+       priority/repeat/silence rules too (an Alarm-priority test will
+       keep repeating, an Emergency-priority one will loop, until you
+       acknowledge or silence it below) and plays in every open webapp
+       tab, not just this one - it can take a couple of seconds to
+       start, since it's picked up the same way a real alert would be.
+       "Preview tone only" is instant and stays local to this tab. The
+       browser plays the exact same rendered audio the Signal K host
+       would (one TTS engine for both), and, if server-side playback is
+       enabled in plugin config, it plays on the host too.</p>
 
     <form id="test-form">
       <div class="row">
@@ -83,7 +90,6 @@
   </fieldset>
 
   <audio id="tone-player"></audio>
-  <audio id="voice-player"></audio>
   <audio id="live-tone-player"></audio>
   <audio id="live-voice-player"></audio>
   <script src="app.js"></script>

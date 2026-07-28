@@ -326,33 +326,58 @@ configuration surface.
 
 ## Testing / operability
 
-- **REST endpoints**: `/test-announce` triggers a one-off test
-  announcement combining any priority, tone (built-in code, custom
-  pattern, or the priority's default), message, language, and voice
-  (returning the pronunciation-substituted `spokenMessage` for the
-  browser to preview); `/options` lists the available priorities
-  (each with its currently-configured default tone, so the UI can
-  show what "Priority default" actually resolves to right now),
-  built-in tone codes, configured `musterListCodes` entries, and the
-  configured `{ language, serverVoice }`; `/tone-clip` serves a
-  tone's raw audio (built-in, custom pattern, or a priority's
-  default); `/voice-clip` synthesizes and serves a message's raw
-  audio on demand (not cached — see "Playback" above). Similar in
-  spirit to `signalk-notification-dispatcher`'s `send-alert.sh`.
+- **REST endpoints**: `/test-announce` pushes a test into the *same
+  alert queue real `alerts.*` alerts use*, at a synthetic path
+  (`test.announce.<priority>`) — so it follows the real
+  priority-preemption/repeat/silence rules (an Alarm-priority test
+  keeps repeating, an Emergency-priority one loops, until
+  acknowledged/silenced) and shows up in `GET /active` exactly like a
+  real alert. This replaced an earlier design (a separate
+  `/test-announce/latest` "last call" endpoint the webapp polled) that
+  turned out to be redundant once tests go through the real queue —
+  `/active`'s own existing polling already broadcasts to every open
+  webapp tab, curl/Swagger-triggered or not, for free. A per-entry
+  `meta` override (`clipPath`/`toneCode`/`tonePattern`/`language`/
+  `voice`) lets a test use an arbitrary tone/voice regardless of
+  configured defaults — real alerts never set this, so `announce()`
+  falls back to the normal priority/config-driven resolution for them
+  unchanged. `/test-announce` returns the synthetic `path` (pass it to
+  `/acknowledge`/`/silence` to stop the test) and the
+  pronunciation-substituted `spokenMessage`; `/options` lists the
+  available priorities (each with its currently-configured default
+  tone, so the UI can show what "Priority default" actually resolves
+  to right now), built-in tone codes, configured `musterListCodes`
+  entries, and the configured `{ language, serverVoice }`;
+  `/tone-clip` serves a tone's raw audio (built-in, custom pattern, or
+  a priority's default); `/voice-clip` synthesizes and serves a
+  message's raw audio on demand (not cached — see "Playback" above).
+  Similar in spirit to `signalk-notification-dispatcher`'s
+  `send-alert.sh`.
+- **`/acknowledge`/`/silence` branch on path**: a real
+  `alerts.*`-backed path proxies to alert manager's REST API as
+  usual; a `test.announce.*` path is acknowledged/silenced directly
+  on the local queue instead, since it has no real alert-manager `id`
+  to proxy to.
 - **Test mode** in the companion webapp: a form exposing all of the
   above as one combination — priority, tone selection (built-in
   codes, a free-text pattern field for previewing an arbitrary
   pattern before saving it to config, **and every configured
   `musterListCodes` entry, listed by zone/role for one-click
   selection**), message, language, and voice — with a "preview tone
-  only" button and a "play combination" button. Shows a live hint
+  only" button (instant, client-side only, no queue interaction) and
+  a "play combination" button (pushes into the real queue as above,
+  so it can take a couple of seconds to start — it's picked up the
+  same way a real alert is, via the same `/active` polling that
+  already drives real-alert playback and now also renders
+  Acknowledge/Silence buttons per row, since a repeating/looping test
+  needs a way to be stopped). Shows a live hint
   next to the tone selector (e.g. "(currently: 3c)" for a priority
   default, or "(pattern: ...)" for a selected muster-list entry)
   reflecting what's actually configured/selected, sourced from
   `/options`. Playback happens both in the browser (fetching
   `/tone-clip` and `/voice-clip`, the same audio the server would
-  produce) and server-side (via `/test-announce`, if server-side
-  playback is enabled in plugin config) — so a muster-list pattern
+  produce) and server-side (if server-side playback is enabled in
+  plugin config) — so a muster-list pattern
   or message can be checked from a laptop before trusting it to
   whatever the Signal K host is actually wired to.
 

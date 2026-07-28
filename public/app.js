@@ -89,9 +89,27 @@
 
   function toneClipUrlForAlert (a) {
     var params = new URLSearchParams()
-    params.set('priority', String(a.priority))
-    params.set('path', a.path)
+    if (a.tonePattern) params.set('pattern', a.tonePattern)
+    else if (a.toneCode) params.set('code', a.toneCode)
+    else params.set('priority', String(a.priority))
+    if (!a.tonePattern && !a.toneCode) params.set('path', a.path)
     return BASE + '/tone-clip?' + params.toString()
+  }
+
+  function postAction (action, path) {
+    return fetch(BASE + '/' + action, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      cache: 'no-store',
+      body: JSON.stringify({ path: path })
+    })
+      .then(function (res) { return res.json() })
+      .then(function (body) {
+        if (!body.ok) console.error('signalk-imo-alerts: ' + action + ' failed', body.error)
+      })
+      .catch(function (err) {
+        console.error('signalk-imo-alerts: ' + action + ' request failed', err)
+      })
   }
 
   function renderActive (alerts) {
@@ -104,19 +122,50 @@
         td.textContent = a[key]
         tr.appendChild(td)
       })
+
+      var actionsTd = document.createElement('td')
+      var ackButton = document.createElement('button')
+      ackButton.textContent = 'Acknowledge'
+      ackButton.disabled = a.state === 'acknowledged'
+      ackButton.addEventListener('click', function () {
+        postAction('acknowledge', a.path)
+      })
+      var silenceButton = document.createElement('button')
+      silenceButton.textContent = 'Silence'
+      silenceButton.disabled = a.state !== 'unacknowledged'
+      silenceButton.addEventListener('click', function () {
+        postAction('silence', a.path)
+      })
+      actionsTd.appendChild(ackButton)
+      actionsTd.appendChild(silenceButton)
+      tr.appendChild(actionsTd)
+
       tbody.appendChild(tr)
 
-      var key = a.path + '|' + a.message
+      // keyed by revision (the queue's own monotonic sequence number), not
+      // path+message - a deliberate resubmission (e.g. clicking "Play
+      // combination" again with the same test message) changes revision
+      // even though path/message don't, so it still replays; a genuine
+      // heartbeat (unchanged revision) correctly doesn't
+      var key = a.path + '|' + a.revision
       if (a.state === 'unacknowledged' && !spokenPaths.has(key)) {
         spokenPaths.add(key)
         // tone first, then voice - same sequencing as server-side
-        // announce() and test mode (see docs/design.md, "Sequencing")
+        // announce() and test mode (see docs/design.md, "Sequencing").
+        // language/voice fall back to the plugin's configured defaults
+        // unless this entry has its own override (set by /test-announce
+        // for a test with a specific language/voice selected).
         fetchAndPlay(toneClipUrlForAlert(a), liveTonePlayer).then(function () {
           // a.message is already pronunciation-substituted server-side
-          // (resolveMessage) - play it as-is, no client-side reprocessing
+          // (resolveMessage, or applyPronunciation for a test) - play it
+          // as-is, no client-side reprocessing
           if (a.message) {
             return fetchAndPlay(
-              voiceClipUrl(a.message, configuredVoice.language, configuredVoice.serverVoice),
+              voiceClipUrl(
+                a.message,
+                a.language || configuredVoice.language,
+                a.voice || configuredVoice.serverVoice
+              ),
               liveVoicePlayer
             )
           }
@@ -141,7 +190,6 @@
   var languageInput = document.getElementById('test-language')
   var voiceInput = document.getElementById('test-server-voice')
   var tonePlayer = document.getElementById('tone-player')
-  var voicePlayer = document.getElementById('voice-player')
 
   var toneDefaultHint = document.getElementById('tone-default-hint')
   var priorityConfigByValue = {}
@@ -254,13 +302,12 @@
     setStatus('')
     var sel = currentSelection()
 
-    // tone can start immediately, independent of the message
-    var tonePromise = playToneInBrowser(sel)
-
-    // server-side test-announce also returns the pronunciation-substituted
-    // spokenMessage, so the browser preview says exactly what the local
-    // speaker would - substitution logic lives once, server-side, rather
-    // than being duplicated in this file
+    // /test-announce now pushes into the same queue real alerts.* alerts
+    // use (see index.js), so playback - in this browser and any other
+    // open tab alike - happens via the existing /active polling above,
+    // not a separate call here. This also means a test now follows the
+    // real priority-preemption/repeat/silence rules, same as a real
+    // alert would.
     fetch(BASE + '/test-announce', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -269,16 +316,7 @@
     })
       .then(function (res) { return res.json() })
       .then(function (body) {
-        if (!sel.message) return
-        return tonePromise.then(function () {
-          return fetchAndPlay(
-            voiceClipUrl(body.spokenMessage || sel.message, sel.language, sel.voice),
-            voicePlayer,
-            function (msg) {
-              setStatus('Voice: ' + msg)
-            }
-          )
-        })
+        if (!body.ok) setStatus('test-announce failed: ' + (body.error || 'unknown error'))
       })
       .catch(function (err) {
         console.error('signalk-imo-alerts: test-announce failed', err)

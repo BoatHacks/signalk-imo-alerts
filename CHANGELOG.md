@@ -5,6 +5,52 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A `/test-announce` call made directly (curl, Swagger) only ever
+  reached server-side playback (`espeak-ng`/`aplay` on the
+  `signalk-server` host) - it never touched the alert queue that the
+  webapp's `/active` polling relies on, so it couldn't reach any open
+  browser tab's playback at all. Fixed by pushing `/test-announce`
+  into the *same alert queue real `alerts.*` alerts use*, at a
+  synthetic path (`test.announce.<priority>`), rather than triggering
+  playback directly or building a separate broadcast mechanism -
+  `/active`'s own existing polling already reaches every open webapp
+  tab for free, and this also means a test now follows the real
+  priority-preemption/repeat/silence rules (an Alarm-priority test
+  keeps repeating, an Emergency-priority one loops, until
+  acknowledged/silenced).
+  - `lib/alertQueue.js`'s `upsert()` gained an optional `meta`
+    parameter (stored on the entry) so a test can carry an explicit
+    tone/language/voice override; real alerts never set this, so
+    `announce()` falls back to the normal priority/config-driven
+    resolution for them unchanged.
+  - `GET /active` now exposes `revision` (the queue's own monotonic
+    sequence counter) and, when present, the `meta`-derived
+    `toneCode`/`tonePattern`/`language`/`voice`, so the webapp can
+    reconstruct the *same* tone/voice a test used instead of silently
+    falling back to the priority default.
+  - `/acknowledge`/`/silence` now branch on path: a `test.announce.*`
+    path is handled directly on the local queue (no real alert-manager
+    `id` exists for it); a real path still proxies to alert manager's
+    REST API as before.
+  - Found and fixed a related bug while designing this: the webapp's
+    "already spoken" dedup key was `path + message`, which wouldn't
+    have replayed a *deliberate* resubmission of an identical test
+    (same priority/message). Switched to `path + revision`, which
+    changes on every fresh occurrence, including a resubmission, and
+    correctly still doesn't change on a genuine heartbeat.
+  - Added Acknowledge/Silence buttons to the webapp's active-alerts
+    table - a real gap surfaced by this change: without them, an
+    Alarm/Emergency-priority test would repeat/loop with no way to
+    stop it from the UI. Real alerts benefit from these too.
+  - Live-verified against the real server: a test-announce call
+    correctly appears in `/active` with its tone override intact,
+    acknowledging/silencing a `test.announce.*` path correctly bypasses
+    alert manager entirely (confirmed via server logs - no proxy
+    request made), while a real alert's acknowledge/silence still
+    correctly proxies to alert manager's REST API as before.
+
 ### Changed (alerts-only branch)
 
 - **Per-priority repeat behavior**, replacing the single flat repeat

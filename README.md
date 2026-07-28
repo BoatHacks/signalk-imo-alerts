@@ -71,8 +71,14 @@ Implemented so far:
   `/test-announce`, `/acknowledge`, `/silence`), and a full
   test-mode webapp: a form combining priority/tone/custom-pattern/
   message/language/voice (including every configured
-  `musterListCodes` entry as a one-click tone option), playing both
-  in-browser and (if enabled) server-side
+  `musterListCodes` entry as a one-click tone option). `/test-announce`
+  pushes into the same alert queue real alerts use (synthetic path
+  `test.announce.<priority>`), so a test follows the real
+  priority/repeat/silence rules and plays in every open webapp tab via
+  `/active`'s existing polling - no separate broadcast mechanism
+  needed. The active-alerts table now has Acknowledge/Silence buttons
+  per row too, since an Alarm/Emergency-priority test will otherwise
+  keep repeating/looping until dealt with
 
 Not yet done: automated CI verification against a real signalk-server
 instance (manual live-server checks have been done repeatedly, ad hoc,
@@ -87,7 +93,7 @@ dependency - not yet decided).
 npm test
 ```
 
-83 tests currently passing. To regenerate the built-in tone clips
+88 tests currently passing. To regenerate the built-in tone clips
 (`sounds/tones/*.wav`) after changing `scripts/generate_tones.py`:
 
 ```sh

@@ -141,11 +141,13 @@ test('routes: /options, /tone-clip, /test-announce', async (t) => {
     assert.equal(res.statusCode, 400)
   })
 
-  await t.test('POST /test-announce with a valid priority responds ok', () => {
+  await t.test('POST /test-announce with a valid priority responds ok and includes the synthetic test path', () => {
     const req = { body: { priority: 2, message: 'test message', toneCode: 'none' } }
     const res = makeFakeRes()
     router._routes['POST /test-announce'](req, res)
-    assert.deepEqual(res.body, { ok: true, spokenMessage: 'test message' })
+    assert.equal(res.body.ok, true)
+    assert.equal(res.body.spokenMessage, 'test message')
+    assert.equal(res.body.path, 'test.announce.2')
   })
 
   await t.test('POST /test-announce with an invalid custom pattern is a 400', () => {
@@ -154,6 +156,134 @@ test('routes: /options, /tone-clip, /test-announce', async (t) => {
     router._routes['POST /test-announce'](req, res)
     assert.equal(res.statusCode, 400)
   })
+
+})
+
+test('POST /test-announce pushes into the real alert queue, visible via /active', () => {
+  const app = makeFakeApp()
+  const router = makeFakeRouter()
+  const plugin = require('../index.js')(app)
+  plugin.start({})
+  plugin.registerWithRouter(router)
+
+  router._routes['POST /test-announce'](
+    { body: { priority: 3, message: 'urgent test', toneCode: '1a', language: 'en' } },
+    makeFakeRes()
+  )
+  const res = makeFakeRes()
+  router._routes['GET /active'](null, res)
+
+  assert.equal(res.body.length, 1)
+  assert.equal(res.body[0].path, 'test.announce.3')
+  assert.equal(res.body[0].priority, 3)
+  assert.equal(res.body[0].message, 'urgent test')
+  assert.equal(res.body[0].state, 'unacknowledged')
+  assert.equal(res.body[0].toneCode, '1a')
+  assert.equal(res.body[0].language, 'en')
+  assert.equal(typeof res.body[0].revision, 'number')
+
+  plugin.stop()
+})
+
+test('POST /test-announce for different priorities creates separate, coexisting queue entries', () => {
+  const app = makeFakeApp()
+  const router = makeFakeRouter()
+  const plugin = require('../index.js')(app)
+  plugin.start({})
+  plugin.registerWithRouter(router)
+
+  router._routes['POST /test-announce']({ body: { priority: 1, message: 'caution test' } }, makeFakeRes())
+  router._routes['POST /test-announce']({ body: { priority: 2, message: 'warning test' } }, makeFakeRes())
+
+  const res = makeFakeRes()
+  router._routes['GET /active'](null, res)
+  assert.equal(res.body.length, 2)
+  assert.ok(res.body.some((e) => e.path === 'test.announce.1' && e.message === 'caution test'))
+  assert.ok(res.body.some((e) => e.path === 'test.announce.2' && e.message === 'warning test'))
+
+  plugin.stop()
+})
+
+test('POST /test-announce resubmitted with the same priority/message still gets a fresh revision (so the webapp replays it)', () => {
+  const app = makeFakeApp()
+  const router = makeFakeRouter()
+  const plugin = require('../index.js')(app)
+  plugin.start({})
+  plugin.registerWithRouter(router)
+
+  router._routes['POST /test-announce']({ body: { priority: 1, message: 'same' } }, makeFakeRes())
+  const res1 = makeFakeRes()
+  router._routes['GET /active'](null, res1)
+
+  router._routes['POST /test-announce']({ body: { priority: 1, message: 'same' } }, makeFakeRes())
+  const res2 = makeFakeRes()
+  router._routes['GET /active'](null, res2)
+
+  assert.ok(res2.body[0].revision > res1.body[0].revision)
+
+  plugin.stop()
+})
+
+test('POST /acknowledge on a test path acknowledges directly on the queue, without calling alert manager', async () => {
+  const app = makeFakeApp()
+  const router = makeFakeRouter()
+  const plugin = require('../index.js')(app)
+  plugin.start({}) // no alertManagerToken - would fail if this went through the REST proxy
+  plugin.registerWithRouter(router)
+
+  router._routes['POST /test-announce']({ body: { priority: 2, message: 'test' } }, makeFakeRes())
+
+  const originalFetch = global.fetch
+  let fetchCalled = false
+  global.fetch = async () => {
+    fetchCalled = true
+    return { ok: true, status: 200 }
+  }
+  try {
+    const res = makeFakeRes()
+    await router._routes['POST /acknowledge']({ body: { path: 'test.announce.2' } }, res)
+    assert.deepEqual(res.body, { ok: true })
+    assert.equal(fetchCalled, false, 'should not proxy to alert manager for a test path')
+  } finally {
+    global.fetch = originalFetch
+  }
+
+  const active = makeFakeRes()
+  router._routes['GET /active'](null, active)
+  assert.equal(active.body[0].state, 'acknowledged')
+
+  plugin.stop()
+})
+
+test('POST /silence on a test path silences directly on the queue, without calling alert manager', async () => {
+  const app = makeFakeApp()
+  const router = makeFakeRouter()
+  const plugin = require('../index.js')(app)
+  plugin.start({})
+  plugin.registerWithRouter(router)
+
+  router._routes['POST /test-announce']({ body: { priority: 3, message: 'test' } }, makeFakeRes())
+
+  const originalFetch = global.fetch
+  let fetchCalled = false
+  global.fetch = async () => {
+    fetchCalled = true
+    return { ok: true, status: 200 }
+  }
+  try {
+    const res = makeFakeRes()
+    await router._routes['POST /silence']({ body: { path: 'test.announce.3' } }, res)
+    assert.deepEqual(res.body, { ok: true })
+    assert.equal(fetchCalled, false)
+  } finally {
+    global.fetch = originalFetch
+  }
+
+  const active = makeFakeRes()
+  router._routes['GET /active'](null, active)
+  assert.equal(active.body[0].state, 'silenced')
+
+  plugin.stop()
 })
 
 test('GET /tone-clip?priority=X&path=Y picks up a matching musterListCodes override (not just the priority default)', () => {
@@ -277,7 +407,9 @@ test('POST /test-announce returns the pronunciation-substituted spokenMessage fo
   const res = makeFakeRes()
   router._routes['POST /test-announce'](req, res)
 
-  assert.deepEqual(res.body, { ok: true, spokenMessage: 'speed over ground sensor fault' })
+  assert.equal(res.body.ok, true)
+  assert.equal(res.body.spokenMessage, 'speed over ground sensor fault')
+  assert.equal(res.body.path, 'test.announce.2')
 
   plugin.stop()
 })
@@ -497,9 +629,15 @@ test('alerts.* delta handling: unacknowledged alert becomes active with priority
 
   const res = makeFakeRes()
   router._routes['GET /active'](null, res)
-  assert.deepEqual(res.body, [
-    { path: 'tanks.fuel.0', priority: 2, message: 'Warning. Fuel tank low.', state: 'unacknowledged' }
-  ])
+  assert.equal(res.body.length, 1)
+  assert.equal(res.body[0].path, 'tanks.fuel.0')
+  assert.equal(res.body[0].priority, 2)
+  assert.equal(res.body[0].message, 'Warning. Fuel tank low.')
+  assert.equal(res.body[0].state, 'unacknowledged')
+  assert.equal(typeof res.body[0].revision, 'number')
+  // real alerts never set meta - these should be absent, not just falsy
+  assert.equal(res.body[0].toneCode, undefined)
+  assert.equal(res.body[0].tonePattern, undefined)
 
   plugin.stop()
 })
