@@ -47,16 +47,31 @@ function makeAlert (overrides = {}) {
   }
 }
 
+// accessLevels tracks, per "METHOD path", which access() level (if any) the
+// route was registered under - lets tests assert /active, /tone-clip and
+// /voice-clip are opened up to unauthenticated readers via
+// router.access('readonly') while mutating/test-only routes stay on the
+// plain (admin-gated) router.
 function makeFakeRouter () {
   const routes = {}
+  const accessLevels = {}
+  function subRouter (level) {
+    return {
+      get: (p, h) => {
+        routes[`GET ${p}`] = h
+        accessLevels[`GET ${p}`] = level
+      },
+      post: (p, h) => {
+        routes[`POST ${p}`] = h
+        accessLevels[`POST ${p}`] = level
+      }
+    }
+  }
   return {
-    get: (p, h) => {
-      routes[`GET ${p}`] = h
-    },
-    post: (p, h) => {
-      routes[`POST ${p}`] = h
-    },
-    _routes: routes
+    ...subRouter(null),
+    access: (level) => subRouter(level),
+    _routes: routes,
+    _accessLevels: accessLevels
   }
 }
 
@@ -91,6 +106,16 @@ test('routes: /options, /tone-clip, /test-announce', async (t) => {
   plugin.start({})
   plugin.registerWithRouter(router) // signalk-server calls this itself, mounted at /plugins/<id>/
   t.after(() => plugin.stop())
+
+  await t.test('read-only playback routes are opened via router.access(\'readonly\'), others stay admin-gated', () => {
+    assert.equal(router._accessLevels['GET /active'], 'readonly')
+    assert.equal(router._accessLevels['GET /tone-clip'], 'readonly')
+    assert.equal(router._accessLevels['GET /voice-clip'], 'readonly')
+    assert.equal(router._accessLevels['GET /options'], null)
+    assert.equal(router._accessLevels['POST /test-announce'], null)
+    assert.equal(router._accessLevels['POST /acknowledge'], null)
+    assert.equal(router._accessLevels['POST /silence'], null)
+  })
 
   await t.test('GET /options lists priorities and tone codes, excluding 1b', () => {
     const req = {}
