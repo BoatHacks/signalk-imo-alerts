@@ -540,7 +540,21 @@ module.exports = function (app) {
   }
 
   plugin.registerWithRouter = function (router) {
-    router.get('/active', (req, res) => {
+    // Routes needed for the companion webapp to passively play incoming
+    // alert tone+voice without an admin login: registerWithRouter's routes
+    // are admin-gated by default (plugin.registerWithRouter's own docs),
+    // but router.access('readonly') (added in a July 2026 signalk-server
+    // release, see SignalK/signalk-server#2498) opens a route to
+    // unauthenticated readers when the server's allow_readonly setting
+    // permits it - the same setting that already lets webapps like
+    // Instrument Panel work without login. Older servers lack
+    // router.access entirely, so feature-detect and fall back to the plain
+    // (admin-gated) router rather than throwing during registration.
+    // Mutating routes (/acknowledge, /silence) and test-only routes
+    // (/options, /test-announce) deliberately stay admin-gated.
+    const readable = typeof router.access === 'function' ? router.access('readonly') : router
+
+    readable.get('/active', (req, res) => {
       res.json(
         queue
           ? [...queue.alerts.values()].map((e) => ({
@@ -604,7 +618,7 @@ module.exports = function (app) {
       })
     })
 
-    router.get('/tone-clip', (req, res) => {
+    readable.get('/tone-clip', (req, res) => {
       const { code, pattern, priority, path: notificationPath } = req.query
       try {
         let clipPath
@@ -639,7 +653,7 @@ module.exports = function (app) {
       }
     })
 
-    router.get('/voice-clip', async (req, res) => {
+    readable.get('/voice-clip', async (req, res) => {
       const { message, language, voice } = req.query
       if (!message) {
         res.status(400).json({ error: 'expected a message query param' })
