@@ -1,0 +1,144 @@
+name: Cut Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, e.g. 0.9.4 (no leading v) — must match package.json and have a dated CHANGELOG.md entry'
+        required: true
+      ref:
+        description: 'Branch or commit to release from'
+        required: false
+        default: 'main'
+
+permissions:
+  contents: write
+  actions: read # needed to look up the CI workflow run for this commit
+  id-token: write # required so GitHub can issue an OIDC token for npm trusted publishing
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.inputs.ref }}
+          fetch-depth: 0
+
+      - name: Verify package.json version matches input
+        run: |
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          if [ "$PKG_VERSION" != "${{ github.event.inputs.version }}" ]; then
+            echo "::error::package.json version ($PKG_VERSION) does not match requested version (${{ github.event.inputs.version }})"
+            exit 1
+          fi
+
+      - name: Ensure tag does not already exist
+        run: |
+          TAG="v${{ github.event.inputs.version }}"
+          if git ls-remote --tags origin | grep -q "refs/tags/${TAG}$"; then
+            echo "::error::Tag ${TAG} already exists"
+            exit 1
+          fi
+
+      # Pulls out everything between this version's "## [x.y.z]" heading and
+      # the next "## [" heading, for use as the release body.
+      - name: Extract CHANGELOG section for this version
+        id: changelog
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          START=$(grep -n "^## \[$VERSION\]" CHANGELOG.md | head -1 | cut -d: -f1)
+          if [ -z "$START" ]; then
+            echo "::error::No CHANGELOG.md entry found for version $VERSION"
+            exit 1
+          fi
+          REST=$(tail -n +$((START+1)) CHANGELOG.md)
+          END=$(printf '%s\n' "$REST" | grep -n "^## \[" | head -1 | cut -d: -f1)
+          if [ -z "$END" ]; then
+            NOTES="$REST"
+          else
+            NOTES=$(printf '%s\n' "$REST" | head -n $((END-1)))
+          fi
+          if [ -z "$NOTES" ]; then
+            echo "::error::No CHANGELOG.md entry found for version $VERSION"
+            exit 1
+          fi
+          {
+            echo "notes<<CHANGELOG_EOF"
+            echo "$NOTES"
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      # Refuse to publish unless CI (.github/workflows/ci.yml) has actually
+      # completed successfully for this exact commit — it runs a broader
+      # multi-OS/multi-Node matrix than the single `npm test` run below.
+      # Checked via the Actions API rather than a `needs:`/`workflow_run`
+      # dependency, since CI is triggered independently by the earlier push
+      # to main, not by this workflow.
+      - name: Verify CI succeeded for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SHA=$(git rev-parse HEAD)
+          echo "Commit: $SHA"
+          CONCLUSION=$(gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?head_sha=${SHA}&status=completed&per_page=1" --jq '.workflow_runs[0].conclusion // "none"')
+          echo "CI conclusion for this commit: $CONCLUSION"
+          if [ "$CONCLUSION" != "success" ]; then
+            echo "::error::CI has not completed successfully for commit $SHA (conclusion: $CONCLUSION). Refusing to publish."
+            exit 1
+          fi
+
+      # Trusted publishing requires npm CLI 11.5.1+ and Node 22.14.0+;
+      # Node 24's bundled npm already satisfies both. registry-url is what
+      # makes actions/setup-node write the .npmrc npm needs to publish.
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false # never use caching in release builds
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build --if-present
+
+      - name: Test
+        run: npm test
+
+      - name: Tag release
+        run: |
+          TAG="v${{ github.event.inputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "$TAG"
+          git push origin "$TAG"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NOTES: ${{ steps.changelog.outputs.notes }}
+        run: |
+          TAG="v${{ github.event.inputs.version }}"
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes "$NOTES"
+
+      # No NODE_AUTH_TOKEN / NPM_TOKEN needed: npm exchanges the OIDC token
+      # from id-token: write above for a short-lived publish credential,
+      # since this repo + this exact workflow filename is configured as the
+      # Trusted Publisher on the package's npm settings page. Provenance
+      # attestation happens automatically for trusted-publishing releases of
+      # public packages from a public repo, so --provenance isn't required,
+      # but it's kept explicit since some setups have needed it.
+      #
+      # This runs directly in this workflow rather than in a separate
+      # release-triggered one, because a release created with the default
+      # GITHUB_TOKEN doesn't cascade into other workflows' `release:
+      # published` triggers — GitHub suppresses that, to prevent recursive
+      # workflow chains — so a separate workflow would never have fired on
+      # its own.
+      - name: Publish to npm
+        run: npm publish --provenance
