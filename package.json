@@ -1,6 +1,6 @@
 {
   "name": "signalk-imo-alerts",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Spoken alert announcements and IMO A.1021(26) alert tone patterns for Signal K notifications",
   "main": "index.js",
   "scripts": {

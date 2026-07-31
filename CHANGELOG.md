@@ -5,6 +5,8 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-31
+
 ### Fixed
 
 - A `/test-announce` call made directly (curl, Swagger) only ever
@@ -356,5 +358,6 @@ See `docs/design.md` for the full rationale on each of these:
 - Tone and voice share a single silence/acknowledge state, per IEC's
   own BAM mariner guidance.
 
-[Unreleased]: https://github.com/BoatHacks/signalk-imo-alerts/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/BoatHacks/signalk-imo-alerts/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/BoatHacks/signalk-imo-alerts/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/BoatHacks/signalk-imo-alerts/releases/tag/v0.1.0
