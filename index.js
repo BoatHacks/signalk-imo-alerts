@@ -8,6 +8,7 @@ const { resolvePriority, shouldVoice, PRIORITY, priorityName } = require('./lib/
 const { resolveMessage, applyPronunciation } = require('./lib/templates')
 const { AlertQueue } = require('./lib/alertQueue')
 const { speak, synthesizeToFile } = require('./lib/tts')
+const { createClient: createAlertManagerClient } = require('./lib/alertManagerClient')
 const {
   resolveClipPath,
   resolveMusterClipPath,
@@ -16,29 +17,40 @@ const {
   TONE_CODE_DESCRIPTION,
   play: playTone
 } = require('./lib/tones')
-const { createAckListener } = require('./lib/ackListener')
 
 module.exports = function (app) {
   const plugin = {
     id: 'signalk-imo-alerts',
     name: 'IMO Alerts (voice + tone)',
     description:
-      'Spoken alert announcements and IMO A.1021(26) alert tone patterns for Signal K notifications'
+      'Spoken alert announcements and IMO A.1021(26) alert tone patterns, sourced from alerts.* (signalk-alert-manager)'
   }
 
   let unsubscribes = []
   let queue = null
   let tickInterval = null
   let config = {}
-  let ackListener = null
-  // Cached meta.displayUnits per path, populated via sendMeta subscription -
-  // see docs/design.md, numeric interpolation.
-  const metaByPath = {}
+  // alert.id (alert manager's own UUID) keyed by our path, so /acknowledge
+  // and /silence can resolve a path (what the webapp sends) to the id
+  // app.alertManager's API actually needs. Also tracks the last-seen
+  // priority/state/message per path, for heartbeat dedup - see
+  // docs/alerts-only-plan.md, "Heartbeat dedup".
+  const alertTrackingByPath = new Map()
+  let warnedNoToken = false // edge-triggered, log once
 
   plugin.schema = {
     type: 'object',
     properties: {
       enabled: { type: 'boolean', title: 'Enabled', default: true },
+      alertManagerToken: {
+        type: 'string',
+        title:
+          'signalk-alert-manager access token (required for acknowledge/silence - reading alerts.* works without it). ' +
+          'alert manager\'s REST API requires the server\'s normal admin auth; there is no in-process bypass ' +
+          '(app.alertManager, which its own docs mention, is unreachable from other plugins - see ' +
+          'BoatHacks/signalk-imo-alerts#1). Generate one via Admin UI > Security > Devices, or the ' +
+          'signalk-generate-token CLI, and paste it here.'
+      },
       language: {
         type: 'string',
         title: 'Message language (used as the espeak-ng voice if "Voice" below is unset)',
@@ -57,25 +69,14 @@ module.exports = function (app) {
           browser: { type: 'boolean', title: 'Play in companion webapp', default: true }
         }
       },
-      repeat: {
-        type: 'object',
-        title: 'Repeat',
-        properties: {
-          enabled: { type: 'boolean', title: 'Repeat until acknowledged', default: true },
-          intervalSeconds: {
-            type: 'number',
-            title:
-              'Repeat interval (seconds) - default mirrors MSC.302(87)\'s 30s figure for an unacknowledged signal',
-            default: 30
-          }
-        }
-      },
-      pinnedEmergencyAlarmPaths: {
-        type: 'array',
+      alarmRepeatIntervalSeconds: {
+        type: 'number',
         title:
-          'Paths always treated as MSC.302(87) Emergency Alarm, regardless of Signal K state (e.g. notifications.mob)',
-        items: { type: 'string' },
-        default: ['notifications.mob']
+          'Alarm-priority repeat interval (seconds) - repeats tone+voice at this interval while unacknowledged. ' +
+          'Warning/Caution play once (no repeat); Emergency alarm repeats continuously with no gap. ' +
+          'All three stop immediately when silenced and only resume on an explicit un-silence, never on a timer ' +
+          '(alert manager owns the actual silence duration) - default mirrors MSC.302(87)\'s 30s figure.',
+        default: 30
       },
       messageOverrides: {
         type: 'array',
@@ -174,6 +175,70 @@ module.exports = function (app) {
           }
         }
       },
+      cautionRtnPhrasing: {
+        type: 'object',
+        title:
+          'Caution: how to voice an alert whose condition cleared but hasn\'t been acknowledged yet (alert manager\'s "rtn-unacknowledged" state)',
+        properties: {
+          useDistinctPhrase: {
+            type: 'boolean',
+            title: 'Speak a distinct phrase instead of repeating the original message',
+            default: false
+          },
+          phrase: {
+            type: 'string',
+            title: 'Custom phrase (used when the above is enabled); default: "Condition cleared, please acknowledge"'
+          }
+        }
+      },
+      warningRtnPhrasing: {
+        type: 'object',
+        title:
+          'Warning: how to voice an alert whose condition cleared but hasn\'t been acknowledged yet (alert manager\'s "rtn-unacknowledged" state)',
+        properties: {
+          useDistinctPhrase: {
+            type: 'boolean',
+            title: 'Speak a distinct phrase instead of repeating the original message',
+            default: false
+          },
+          phrase: {
+            type: 'string',
+            title: 'Custom phrase (used when the above is enabled); default: "Condition cleared, please acknowledge"'
+          }
+        }
+      },
+      alarmRtnPhrasing: {
+        type: 'object',
+        title:
+          'Alarm: how to voice an alert whose condition cleared but hasn\'t been acknowledged yet (alert manager\'s "rtn-unacknowledged" state)',
+        properties: {
+          useDistinctPhrase: {
+            type: 'boolean',
+            title: 'Speak a distinct phrase instead of repeating the original message',
+            default: false
+          },
+          phrase: {
+            type: 'string',
+            title: 'Custom phrase (used when the above is enabled); default: "Condition cleared, please acknowledge"'
+          }
+        }
+      },
+      emergencyAlarmRtnPhrasing: {
+        type: 'object',
+        title:
+          'Emergency alarm: how to voice an alert whose condition cleared but hasn\'t been acknowledged yet (alert manager\'s "rtn-unacknowledged" state)',
+        properties: {
+          useDistinctPhrase: {
+            type: 'boolean',
+            title: 'Speak a distinct phrase instead of repeating the original message',
+            default: false
+          },
+          phrase: {
+            type: 'string',
+            title: 'Custom phrase (used when the above is enabled); default: "Condition cleared, please acknowledge"'
+          }
+        }
+      },
       musterListCodes: {
         type: 'array',
         title: 'IMO A.1021(26) 1.b ship-specific muster-list tone patterns',
@@ -200,30 +265,28 @@ module.exports = function (app) {
     queue = new AlertQueue({
       announce: (entry) => announce(entry),
       interrupt: () => interruptPlayback(),
-      repeatIntervalSeconds: config.repeat.intervalSeconds,
-      repeatEnabled: config.repeat.enabled
+      getRepeatPolicy: (priority) => repeatPolicyForPriority(priority)
     })
 
-    tickInterval = setInterval(() => queue.tick(), 1000)
+    // Graceful degradation (see docs/alerts-only-plan.md, decision 3):
+    // reading alerts.* works regardless of any of this - only the
+    // ack/silence REST proxy needs a token, so that's what we check for
+    // and warn about, once, rather than repeatedly.
+    tickInterval = setInterval(() => {
+      queue.tick()
+    }, 1000)
+    checkAlertManagerTokenConfigured()
 
-    ackListener = createAckListener(app, {
-      pluginId: plugin.id,
-      getQueue: () => queue
-    })
-    ackListener.startPolling(() => (queue ? [...queue.alerts.keys()] : []))
-
-    const unsubMeta = app.subscriptionmanager.subscribe(
+    const unsub = app.subscriptionmanager.subscribe(
       {
         context: 'vessels.self',
-        subscribe: [{ path: 'notifications.*', policy: 'instant', minPeriod: 200 }]
+        subscribe: [{ path: 'alerts.*', policy: 'instant', minPeriod: 200 }]
       },
       unsubscribes,
       (err) => app.error(`subscription error: ${err}`),
-      (delta) => handleDelta(delta),
-      'all', // sourcePolicy - see signalk-dead-mans-switch precedent
-      'all' // sendMeta - needed for displayUnits, see docs/design.md
+      (delta) => handleAlertDelta(delta)
     )
-    unsubscribes.push(unsubMeta)
+    unsubscribes.push(unsub)
   }
 
   plugin.stop = function () {
@@ -231,26 +294,42 @@ module.exports = function (app) {
     unsubscribes = []
     if (tickInterval) clearInterval(tickInterval)
     tickInterval = null
-    if (ackListener) ackListener.stop()
-    ackListener = null
+    alertTrackingByPath.clear()
     queue = null
+  }
+
+  // app.alertManager (the plugin API alert manager's own README documents)
+  // is structurally unreachable from other plugins - confirmed live and
+  // independently upstream, see docs/alerts-only-plan.md and
+  // BoatHacks/signalk-imo-alerts#1. Ack/silence go through alert manager's
+  // REST API instead (lib/alertManagerClient.js), which needs a token we
+  // can only check for locally - we can't detect "is alert manager
+  // actually running" proactively without making an authenticated request
+  // ourselves, so this only checks what we actually can: whether a token
+  // is configured at all. Reading (the alerts.* subscription) works
+  // regardless of this - only ack/silence need the token.
+  function checkAlertManagerTokenConfigured () {
+    if (config.alertManagerToken || warnedNoToken) return
+    warnedNoToken = true
+    app.debug(
+      'no alertManagerToken configured - acknowledge/silence will not work until one is set ' +
+        '(see plugin.schema: generate a token via Admin UI > Security > Devices, or signalk-generate-token)'
+    )
+    app.setPluginStatus?.('Reading alerts.* OK, but no alertManagerToken configured for ack/silence')
   }
 
   function normalizeConfig (options) {
     const o = options || {}
     return {
       enabled: o.enabled !== false,
+      alertManagerToken: o.alertManagerToken || '',
       language: o.language || 'en',
       serverVoice: o.serverVoice || '',
       playback: {
         server: o.playback?.server !== false,
         browser: o.playback?.browser !== false
       },
-      repeat: {
-        enabled: o.repeat?.enabled !== false,
-        intervalSeconds: o.repeat?.intervalSeconds || 30
-      },
-      pinnedEmergencyAlarmPaths: o.pinnedEmergencyAlarmPaths || ['notifications.mob'],
+      alarmRepeatIntervalSeconds: o.alarmRepeatIntervalSeconds || 30,
       messageOverrides: o.messageOverrides || [],
       pronunciationSubstitutions: o.pronunciationSubstitutions || [],
       musterListCodes: o.musterListCodes || [],
@@ -260,65 +339,146 @@ module.exports = function (app) {
       emergencyAlarmTone: {
         preset: o.emergencyAlarmTone?.preset || '1a',
         pattern: o.emergencyAlarmTone?.pattern || ''
-      }
+      },
+      cautionRtnPhrasing: normalizeRtnPhrasing(o.cautionRtnPhrasing),
+      warningRtnPhrasing: normalizeRtnPhrasing(o.warningRtnPhrasing),
+      alarmRtnPhrasing: normalizeRtnPhrasing(o.alarmRtnPhrasing),
+      emergencyAlarmRtnPhrasing: normalizeRtnPhrasing(o.emergencyAlarmRtnPhrasing)
     }
   }
 
-  function handleDelta (delta) {
+  function normalizeRtnPhrasing (o) {
+    return {
+      useDistinctPhrase: Boolean(o?.useDistinctPhrase),
+      phrase: o?.phrase || ''
+    }
+  }
+
+  function priorityRtnPhrasingConfig () {
+    return {
+      [PRIORITY.CAUTION]: config.cautionRtnPhrasing,
+      [PRIORITY.WARNING]: config.warningRtnPhrasing,
+      [PRIORITY.ALARM]: config.alarmRtnPhrasing,
+      [PRIORITY.EMERGENCY_ALARM]: config.emergencyAlarmRtnPhrasing
+    }
+  }
+
+  function handleAlertDelta (delta) {
     for (const update of delta.updates || []) {
       for (const pv of update.values || []) {
-        if (pv.path.startsWith('notifications.')) {
-          handleNotification(pv.path, pv.value)
-        }
-      }
-      for (const meta of update.meta || []) {
-        if (meta.value && meta.value.displayUnits) {
-          metaByPath[meta.path] = meta.value.displayUnits
+        if (pv.path.startsWith('alerts.')) {
+          handleAlert(pv.path, pv.value)
         }
       }
     }
   }
 
-  function handleNotification (notificationPath, notification) {
-    if (!notification) {
-      queue.remove(notificationPath)
+  /**
+   * @param {string} deltaPath - the full 'alerts.<path>' delta path
+   * @param {object|null} alert - the alerts.* value object (see
+   *   docs/alerts-only-plan.md for the full shape), or null/absent if
+   *   ever published that way (defensive - alert manager normally
+   *   publishes a terminal { state: 'normal', ... } object instead)
+   */
+  function handleAlert (deltaPath, alert) {
+    const alertPath = alert?.path || deltaPath.slice('alerts.'.length)
+
+    if (!alert) {
+      queue.remove(alertPath)
+      alertTrackingByPath.delete(alertPath)
       return
     }
 
-    // ack/silence detection, reconciliation-style (see
-    // signalk-dead-mans-switch precedent, docs/design.md "Ack/silence
-    // detection"): treat an explicit acknowledged flag, or "sound" no
-    // longer present in method, as the corresponding signal.
-    if (notification.status?.acknowledged === true || notification.method?.includes('sound') === false) {
-      queue.acknowledge(notificationPath)
+    // Heartbeat dedup (see docs/alerts-only-plan.md): a delta for a path
+    // whose id/priority/state/message/silenced are all unchanged from what
+    // we already have is just a liveness heartbeat, not a real change -
+    // ignore it rather than re-triggering playback or resetting timers.
+    const tracked = alertTrackingByPath.get(alertPath)
+    const isHeartbeat =
+      tracked &&
+      tracked.id === alert.id &&
+      tracked.priority === alert.priority &&
+      tracked.state === alert.state &&
+      tracked.message === alert.message &&
+      tracked.silenced === alert.silenced
+    if (isHeartbeat) return
+
+    alertTrackingByPath.set(alertPath, {
+      id: alert.id,
+      priority: alert.priority,
+      state: alert.state,
+      message: alert.message,
+      silenced: alert.silenced
+    })
+
+    if (alert.state === 'normal') {
+      queue.remove(alertPath)
+      alertTrackingByPath.delete(alertPath)
       return
     }
 
-    const priority = resolvePriority(
-      notificationPath,
-      notification.state,
-      config.pinnedEmergencyAlarmPaths
-    )
+    const priority = resolvePriority(alert.priority)
     if (!shouldVoice(priority)) {
-      queue.remove(notificationPath)
+      // unrecognized/missing priority - mirror alert manager's own
+      // behavior of silently ignoring a malformed alert
+      queue.remove(alertPath)
+      return
+    }
+
+    if (alert.state === 'acknowledged') {
+      queue.acknowledge(alertPath)
+      return
+    }
+
+    // remaining states: 'unacknowledged' or 'rtn-unacknowledged'
+    if (alert.silenced) {
+      queue.silence(alertPath)
       return
     }
 
     const message = resolveMessage({
-      path: notificationPath,
+      path: alertPath,
       priority,
-      notification,
-      rawValue: typeof notification.value === 'number' ? notification.value : undefined,
-      displayUnits: metaByPath[notificationPath],
+      alert,
       overrides: config.messageOverrides,
-      pronunciation: config.pronunciationSubstitutions
+      pronunciation: config.pronunciationSubstitutions,
+      rtnPhrasing: priorityRtnPhrasingConfig()[priority]
     })
 
-    queue.upsert(notificationPath, priority, message)
-    ackListener.syncPaths([notificationPath])
+    queue.upsert(alertPath, priority, message)
   }
 
   let currentTonePlayback = null
+
+  function alertManagerClient () {
+    const port = Number(process.env?.PORT) || app.config?.settings?.port || 3000
+    return createAlertManagerClient({ port, token: config.alertManagerToken })
+  }
+
+  // /test-announce entries share the real queue (see there) under a
+  // synthetic path, so ack/silence can tell them apart from real
+  // alerts.*-backed ones that need proxying to alert manager's REST API.
+  function isTestPath (path) {
+    return path.startsWith('test.announce.')
+  }
+
+  // Per-priority repeat behavior (see docs/alerts-only-plan.md and
+  // lib/alertQueue.js's class doc comment for the full rationale):
+  //  - Warning/Caution: play once, no repeat.
+  //  - Alarm: repeat at the configured interval while unacknowledged.
+  //  - Emergency alarm: repeat continuously (no gap) while unacknowledged -
+  //    always on, not configurable/disableable, given the severity.
+  // All three stop immediately when silenced and only resume on an
+  // explicit un-silence transition, never on a local timer.
+  function repeatPolicyForPriority (priority) {
+    if (priority === PRIORITY.EMERGENCY_ALARM) {
+      return { mode: 'continuous' }
+    }
+    if (priority === PRIORITY.ALARM) {
+      return { mode: 'interval', intervalSeconds: config.alarmRepeatIntervalSeconds }
+    }
+    return { mode: 'once' } // Caution, Warning
+  }
 
   function priorityToneConfig () {
     return {
@@ -330,12 +490,19 @@ module.exports = function (app) {
   }
 
   async function announce (entry) {
-    const clipPath = resolveClipPath(entry.priority, entry.path, config.musterListCodes, priorityToneConfig())
+    // entry.meta carries a per-entry override (used by /test-announce so
+    // a test can pick an arbitrary tone/language/voice regardless of
+    // configured defaults) - real alerts never set this, so they always
+    // resolve from priority/path/config as before.
+    const clipPath =
+      entry.meta && entry.meta.clipPath !== undefined
+        ? entry.meta.clipPath
+        : resolveClipPath(entry.priority, entry.path, config.musterListCodes, priorityToneConfig())
     await playAnnouncement({
       clipPath,
       message: entry.message,
-      language: config.language,
-      voice: config.serverVoice
+      language: (entry.meta && entry.meta.language) || config.language,
+      voice: (entry.meta && entry.meta.voice) || config.serverVoice
     })
   }
 
@@ -373,14 +540,42 @@ module.exports = function (app) {
   }
 
   plugin.registerWithRouter = function (router) {
-    router.get('/active', (req, res) => {
+    // Routes needed for the companion webapp to passively play incoming
+    // alert tone+voice without an admin login: registerWithRouter's routes
+    // are admin-gated by default (plugin.registerWithRouter's own docs),
+    // but router.access('readonly') (added in a July 2026 signalk-server
+    // release, see SignalK/signalk-server#2498) opens a route to
+    // unauthenticated readers when the server's allow_readonly setting
+    // permits it - the same setting that already lets webapps like
+    // Instrument Panel work without login. Older servers lack
+    // router.access entirely, so feature-detect and fall back to the plain
+    // (admin-gated) router rather than throwing during registration.
+    // Mutating routes (/acknowledge, /silence) and test-only routes
+    // (/options, /test-announce) deliberately stay admin-gated.
+    const readable = typeof router.access === 'function' ? router.access('readonly') : router
+
+    readable.get('/active', (req, res) => {
       res.json(
         queue
           ? [...queue.alerts.values()].map((e) => ({
               path: e.path,
               priority: e.priority,
               message: e.message,
-              state: e.state
+              state: e.state,
+              // monotonic, changes on every fresh occurrence (including a
+              // repeated manual /test-announce submission with identical
+              // priority/message) - a more robust "is this actually new"
+              // signal for the webapp than path+message, which wouldn't
+              // change on a deliberate resubmission
+              revision: e.queuedAt,
+              // only present for /test-announce entries (see there) - lets
+              // the browser reconstruct the same tone-clip URL the server
+              // used, instead of falling back to the priority default and
+              // silently mismatching a test's chosen tone override
+              toneCode: e.meta ? e.meta.toneCode : undefined,
+              tonePattern: e.meta ? e.meta.tonePattern : undefined,
+              language: e.meta ? e.meta.language : undefined,
+              voice: e.meta ? e.meta.voice : undefined
             }))
           : []
       )
@@ -423,7 +618,7 @@ module.exports = function (app) {
       })
     })
 
-    router.get('/tone-clip', (req, res) => {
+    readable.get('/tone-clip', (req, res) => {
       const { code, pattern, priority, path: notificationPath } = req.query
       try {
         let clipPath
@@ -458,7 +653,7 @@ module.exports = function (app) {
       }
     })
 
-    router.get('/voice-clip', async (req, res) => {
+    readable.get('/voice-clip', async (req, res) => {
       const { message, language, voice } = req.query
       if (!message) {
         res.status(400).json({ error: 'expected a message query param' })
@@ -517,37 +712,99 @@ module.exports = function (app) {
         return
       }
 
-      // respond immediately - server-side playback happens asynchronously
-      // and shouldn't hold the HTTP request open. spokenMessage is
-      // included so the webapp's browser-side preview can play the exact
-      // same pronunciation-substituted text via /voice-clip, without
-      // duplicating the substitution logic client-side.
       const spokenMessage = message
         ? applyPronunciation(message, config.pronunciationSubstitutions)
         : null
-      res.json({ ok: true, spokenMessage })
-      playAnnouncement({ clipPath, message: spokenMessage, language, voice }).catch((err) =>
-        app.debug(`test-announce playback error: ${err}`)
-      )
+
+      // Pushed into the SAME queue real alerts.* alerts use (one slot per
+      // priority, so different-priority tests can coexist and preempt each
+      // other the same way real alerts would) rather than a separate
+      // one-off playback path. This gets tone-then-voice playback,
+      // priority preemption, and the per-priority repeat policy for free -
+      // and critically, browser broadcast: any open webapp tab's existing
+      // /active polling picks this up and plays it exactly like a real
+      // alert, with no separate broadcast mechanism needed. clipPath/
+      // language/voice are carried as a per-entry override (entry.meta,
+      // see announce()) so a test can use an arbitrary tone/voice
+      // regardless of configured defaults - real alerts never set this.
+      const testPath = `test.announce.${priority}`
+      queue.upsert(testPath, priority, spokenMessage, {
+        clipPath,
+        toneCode: toneCode || undefined,
+        tonePattern: tonePattern || undefined,
+        language,
+        voice
+      })
+
+      res.json({ ok: true, path: testPath, spokenMessage })
     })
 
-    router.post('/acknowledge', (req, res) => {
-      const { path: notificationPath } = req.body || {}
-      if (typeof notificationPath !== 'string') {
+    router.post('/acknowledge', async (req, res) => {
+      const { path: alertPath } = req.body || {}
+      if (typeof alertPath !== 'string') {
         res.status(400).json({ error: 'expected { path: string }' })
         return
       }
-      queue.acknowledge(notificationPath)
+
+      // /test-announce entries live in the same queue as real alerts (see
+      // there for why) but aren't backed by a real alerts.* delta, so
+      // there's no alert-manager id to proxy to - acknowledge them
+      // directly on the local queue instead.
+      if (isTestPath(alertPath)) {
+        queue.acknowledge(alertPath)
+        res.json({ ok: true })
+        return
+      }
+
+      const tracked = alertTrackingByPath.get(alertPath)
+      if (!tracked) {
+        res.status(404).json({ error: `no known alert for path "${alertPath}"` })
+        return
+      }
+      // Proxy to alert manager's REST API rather than mutating our own
+      // queue directly - it's the single source of truth
+      // (docs/alerts-only-plan.md, "Ack/Silence: delegate, don't own").
+      // Our queue updates itself from the resulting alerts.* delta, the
+      // same way any other state change does. NOT app.alertManager - see
+      // lib/alertManagerClient.js and BoatHacks/signalk-imo-alerts#1 for
+      // why that doesn't work.
+      const client = alertManagerClient()
+      const result = await client.acknowledgeAlert(tracked.id)
+      if (!result.ok) {
+        res.status(result.status).json({ error: result.error })
+        return
+      }
       res.json({ ok: true })
     })
 
-    router.post('/silence', (req, res) => {
-      const { path: notificationPath } = req.body || {}
-      if (typeof notificationPath !== 'string') {
+    router.post('/silence', async (req, res) => {
+      const { path: alertPath, durationSeconds } = req.body || {}
+      if (typeof alertPath !== 'string') {
         res.status(400).json({ error: 'expected { path: string }' })
         return
       }
-      queue.silence(notificationPath)
+
+      if (isTestPath(alertPath)) {
+        queue.silence(alertPath)
+        res.json({ ok: true })
+        return
+      }
+
+      const tracked = alertTrackingByPath.get(alertPath)
+      if (!tracked) {
+        res.status(404).json({ error: `no known alert for path "${alertPath}"` })
+        return
+      }
+      // Unlike the old (unreachable) plugin API, alert manager's REST
+      // silence endpoint already defaults to its own configured maximum
+      // per priority when duration is omitted - no need to duplicate
+      // those defaults (120s/30s) here ourselves.
+      const client = alertManagerClient()
+      const result = await client.silenceAlert(tracked.id, typeof durationSeconds === 'number' ? durationSeconds : undefined)
+      if (!result.ok) {
+        res.status(result.status).json({ error: result.error })
+        return
+      }
       res.json({ ok: true })
     })
   }

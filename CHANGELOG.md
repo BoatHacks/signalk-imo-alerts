@@ -7,6 +7,140 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- A `/test-announce` call made directly (curl, Swagger) only ever
+  reached server-side playback (`espeak-ng`/`aplay` on the
+  `signalk-server` host) - it never touched the alert queue that the
+  webapp's `/active` polling relies on, so it couldn't reach any open
+  browser tab's playback at all. Fixed by pushing `/test-announce`
+  into the *same alert queue real `alerts.*` alerts use*, at a
+  synthetic path (`test.announce.<priority>`), rather than triggering
+  playback directly or building a separate broadcast mechanism -
+  `/active`'s own existing polling already reaches every open webapp
+  tab for free, and this also means a test now follows the real
+  priority-preemption/repeat/silence rules (an Alarm-priority test
+  keeps repeating, an Emergency-priority one loops, until
+  acknowledged/silenced).
+  - `lib/alertQueue.js`'s `upsert()` gained an optional `meta`
+    parameter (stored on the entry) so a test can carry an explicit
+    tone/language/voice override; real alerts never set this, so
+    `announce()` falls back to the normal priority/config-driven
+    resolution for them unchanged.
+  - `GET /active` now exposes `revision` (the queue's own monotonic
+    sequence counter) and, when present, the `meta`-derived
+    `toneCode`/`tonePattern`/`language`/`voice`, so the webapp can
+    reconstruct the *same* tone/voice a test used instead of silently
+    falling back to the priority default.
+  - `/acknowledge`/`/silence` now branch on path: a `test.announce.*`
+    path is handled directly on the local queue (no real alert-manager
+    `id` exists for it); a real path still proxies to alert manager's
+    REST API as before.
+  - Found and fixed a related bug while designing this: the webapp's
+    "already spoken" dedup key was `path + message`, which wouldn't
+    have replayed a *deliberate* resubmission of an identical test
+    (same priority/message). Switched to `path + revision`, which
+    changes on every fresh occurrence, including a resubmission, and
+    correctly still doesn't change on a genuine heartbeat.
+  - Added Acknowledge/Silence buttons to the webapp's active-alerts
+    table - a real gap surfaced by this change: without them, an
+    Alarm/Emergency-priority test would repeat/loop with no way to
+    stop it from the UI. Real alerts benefit from these too.
+  - Live-verified against the real server: a test-announce call
+    correctly appears in `/active` with its tone override intact,
+    acknowledging/silencing a `test.announce.*` path correctly bypasses
+    alert manager entirely (confirmed via server logs - no proxy
+    request made), while a real alert's acknowledge/silence still
+    correctly proxies to alert manager's REST API as before.
+
+### Changed (alerts-only branch)
+
+- **Per-priority repeat behavior**, replacing the single flat repeat
+  interval: Warning (and, by extension - not explicitly specified,
+  flagged as an assumption - Caution) plays tone+voice once and never
+  repeats on its own; Alarm repeats at a configurable
+  `alarmRepeatIntervalSeconds` (default 30s); Emergency Alarm repeats
+  continuously with no gap between iterations, always on. For Alarm
+  and Emergency Alarm, silencing now stops playback immediately and
+  **never auto-resumes on a local timer** - the old behavior (a
+  silenced alert automatically un-silencing itself after the repeat
+  interval elapsed) is gone; resumption only happens when a fresh
+  `alerts.*` delta reports `silenced: false`, matching alert manager
+  being the sole owner of the actual silence-duration clock.
+  `lib/alertQueue.js`'s `getRepeatPolicy` replaces the old
+  `repeatIntervalSeconds`/`repeatEnabled` constructor options.
+  Fixed two real bugs surfaced while writing the test suite for this:
+  a naive continuous-loop reset let one Emergency Alarm starve a
+  same-priority sibling forever (fixed with a separate `queuedAt`
+  ordering field, distinct from `firstSeen`); that fix's first attempt
+  used `Date.now()` for `queuedAt`, which isn't fine-grained enough to
+  reliably break ties between entries queued in the same millisecond
+  (switched to a monotonic sequence counter). Live-verified via three
+  separate checks against the real server: Warning stayed at exactly
+  one attempt after 13 real seconds, Alarm's second attempt landed
+  ~30.9s after the first (default interval), Emergency Alarm looped
+  149 times in 3 real seconds - which also surfaced a genuine
+  operational caveat worth flagging rather than silently fixing:
+  `'continuous'` mode has no pacing of its own beyond real playback
+  duration, so a misconfigured/broken audio setup could spin the loop
+  very fast rather than failing at a bounded rate.
+
+- **Switched data source from `notifications.*` to `alerts.*`**,
+  published by [signalk-alert-manager](https://github.com/hatlabs/signalk-alert-manager).
+  See `docs/alerts-only-plan.md` for the full plan and decisions.
+  `signalk-alert-manager` is now a hard dependency, declared via
+  `signalk.requires` in `package.json`.
+  - `lib/priority.js`: priority now comes directly from alert
+    manager's own `caution`/`warning`/`alarm`/`emergency` field
+    instead of being inferred from Signal K notification states.
+    Removed `pinnedEmergencyAlarmPaths` entirely - alert manager
+    already has a genuine Emergency tier, no pinning hack needed.
+  - `index.js`: subscribes to `alerts.*` instead of `notifications.*`.
+    New heartbeat dedup (a repeat delta with unchanged id/priority/
+    state/message/silenced doesn't re-trigger playback) and full
+    IEC 62923 lifecycle handling (`unacknowledged`, `acknowledged`,
+    `rtn-unacknowledged`, `normal`).
+  - `lib/alertQueue.js`: a priority escalation (e.g. alert manager
+    auto-escalating an unacknowledged warning to alarm) now forces an
+    immediate re-announcement rather than waiting out the normal
+    repeat interval - including a fix for the self-escalation edge
+    case (the currently-playing entry escalating mid-announcement).
+  - `lib/templates.js`: rebuilt around alert manager's `alert` object
+    shape instead of a Signal K `notification`. Dropped
+    `humanizePath` (alert manager's `message` is always present) and
+    numeric/`displayUnits` interpolation (removed the now-dead
+    `lib/units.js`). Added per-priority configurable phrasing for
+    `rtn-unacknowledged` alerts (`cautionRtnPhrasing` /
+    `warningRtnPhrasing` / `alarmRtnPhrasing` /
+    `emergencyAlarmRtnPhrasing`).
+  - `/acknowledge` and `/silence`: now proxy to alert manager's REST
+    API (`lib/alertManagerClient.js`) instead of mutating our own
+    queue directly - alert manager is the single source of truth,
+    our queue reflects the resulting `alerts.*` delta the same way
+    any other state change does. **Note**: alert manager's own
+    documented plugin API (`app.alertManager`) turned out to be
+    structurally unreachable from other plugins - confirmed live
+    against a real server and independently upstream
+    (hatlabs/signalk-alert-manager#104/#106) - see
+    [BoatHacks/signalk-imo-alerts#1](https://github.com/BoatHacks/signalk-imo-alerts/issues/1).
+    A new `alertManagerToken` config setting (a user-generated Signal
+    K access token) is required for ack/silence to work; reading
+    `alerts.*` works without one.
+  - Deleted `lib/ackListener.js` and its test - the PUT-handler/
+    poll-fallback reconciliation approach it implemented for
+    `notifications.*` has no equivalent need under `alerts.*`, where
+    alert manager already owns lifecycle reconciliation.
+  - All live-verified against a real `signalk-server` +
+    `signalk-alert-manager` pairing: raised alerts via alert
+    manager's actual REST API, confirmed correct pickup/priority/
+    message in our `/active`, and confirmed acknowledging/silencing
+    through our endpoints correctly updated alert manager's own
+    record and round-tripped back to our `/active` via the resulting
+    delta.
+  - 76/76 tests passing (`test/priority.test.js`,
+    `test/alertQueue.test.js`, `test/templates.test.js`,
+    `test/routes.test.js`, new `test/alertManagerClient.test.js`).
+
+### Fixed
+
 - The webapp spoke real active alerts (from `notifications.*`) but
   never played their tone first - `renderActive()` only ever fetched
   `/voice-clip`, `/tone-clip` was never wired into that path at all

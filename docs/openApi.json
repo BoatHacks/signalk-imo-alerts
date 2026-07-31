@@ -6,9 +6,9 @@
     "description": "Spoken alert announcements and IMO A.1021(26) alert tone patterns"
   },
   "paths": {
-    "/plugins/signalk-imo-alerts/active": {
+    "/active": {
       "get": {
-        "summary": "List currently active (voiceable) alerts",
+        "summary": "List currently active (voiceable) alerts, including any /test-announce entries (tracked at synthetic paths test.announce.<priority>) alongside real alerts.*-backed ones",
         "responses": {
           "200": {
             "description": "Active alerts",
@@ -22,7 +22,15 @@
                       "path": { "type": "string" },
                       "priority": { "type": "number" },
                       "message": { "type": "string" },
-                      "state": { "type": "string" }
+                      "state": { "type": "string" },
+                      "revision": {
+                        "type": "number",
+                        "description": "Monotonic, changes on every fresh occurrence (including a deliberate /test-announce resubmission with identical priority/message) - a more robust 'is this actually new' signal for a client than path+message alone"
+                      },
+                      "toneCode": { "type": "string", "description": "Only present for a /test-announce entry with an explicit tone override" },
+                      "tonePattern": { "type": "string", "description": "Only present for a /test-announce entry with an explicit custom pattern" },
+                      "language": { "type": "string", "description": "Only present for a /test-announce entry with an explicit language override" },
+                      "voice": { "type": "string", "description": "Only present for a /test-announce entry with an explicit voice override" }
                     }
                   }
                 }
@@ -32,7 +40,7 @@
         }
       }
     },
-    "/plugins/signalk-imo-alerts/options": {
+    "/options": {
       "get": {
         "summary": "List available priorities and built-in tone codes, for the test-mode form",
         "responses": {
@@ -100,7 +108,7 @@
         }
       }
     },
-    "/plugins/signalk-imo-alerts/tone-clip": {
+    "/tone-clip": {
       "get": {
         "summary": "Serve a tone clip's audio, either a built-in code, a custom pattern, or a priority's default",
         "parameters": [
@@ -116,9 +124,9 @@
         }
       }
     },
-    "/plugins/signalk-imo-alerts/test-announce": {
+    "/test-announce": {
       "post": {
-        "summary": "Manually trigger a test announcement, combining any priority/tone/message/language/voice (for verifying pronunciation, volume, tone selection, and voice model before trusting it live)",
+        "summary": "Trigger a test announcement, combining any priority/tone/message/language/voice (for verifying pronunciation, volume, tone selection, and voice model before trusting it live). Pushes into the same alert queue real alerts.* alerts use, at a synthetic path (test.announce.<priority>) - so it follows the real priority-preemption/repeat/silence rules, shows up in GET /active, and plays in every open webapp tab via that endpoint's existing polling, not just wherever this call was made.",
         "requestBody": {
           "required": true,
           "content": {
@@ -147,9 +155,13 @@
                   "type": "object",
                   "properties": {
                     "ok": { "type": "boolean" },
+                    "path": {
+                      "type": "string",
+                      "description": "The synthetic queue path this test was pushed to (test.announce.<priority>) - pass this to /acknowledge or /silence to stop it"
+                    },
                     "spokenMessage": {
                       "type": ["string", "null"],
-                      "description": "The message after pronunciation substitution - use this (not the raw message sent) for a browser-side /voice-clip preview, so it matches server-side TTS exactly"
+                      "description": "The message after pronunciation substitution - matches what GET /active will report for this entry"
                     }
                   }
                 }
@@ -160,7 +172,7 @@
         }
       }
     },
-    "/plugins/signalk-imo-alerts/voice-clip": {
+    "/voice-clip": {
       "get": {
         "summary": "Synthesize and serve a message's raw audio on demand (not cached - message text is usually dynamic). Used by the webapp to play the exact same audio the local speaker would.",
         "parameters": [
@@ -175,9 +187,9 @@
         }
       }
     },
-    "/plugins/signalk-imo-alerts/acknowledge": {
+    "/acknowledge": {
       "post": {
-        "summary": "Fully acknowledge an active alert (stops repeats until state changes again)",
+        "summary": "Acknowledge an active alert. For a real alerts.*-backed alert, proxies to signalk-alert-manager's own REST API (POST /plugins/signalk-alert-manager/alerts/{id}/acknowledge) using the configured alertManagerToken - alert manager is the single source of truth, and this plugin's own state updates from the resulting alerts.* delta, not from this call directly. For a /test-announce entry (path test.announce.<priority>), acknowledges directly on the local queue instead, since there's no real alert-manager id to proxy to.",
         "requestBody": {
           "required": true,
           "content": {
@@ -192,13 +204,16 @@
         },
         "responses": {
           "200": { "description": "Accepted" },
-          "400": { "description": "Invalid request body" }
+          "400": { "description": "Invalid request body, or no alertManagerToken configured" },
+          "404": { "description": "No known alert for that path (nothing has been seen on alerts.* for it)" },
+          "401": { "description": "alert manager rejected the token" },
+          "503": { "description": "Could not reach signalk-alert-manager" }
         }
       }
     },
-    "/plugins/signalk-imo-alerts/silence": {
+    "/silence": {
       "post": {
-        "summary": "Temporarily silence an active alert (repeat resumes automatically unless also acknowledged - MSC.302(87) silenced vs. acknowledged states)",
+        "summary": "Temporarily silence an active alert. For a real alerts.*-backed alert, proxies to signalk-alert-manager's own REST API (POST /plugins/signalk-alert-manager/alerts/{id}/silence) - it does not auto-resume on any local timer, only when a fresh alerts.* delta reports silenced: false. For a /test-announce entry (path test.announce.<priority>), silences directly on the local queue instead, with the same no-local-timer behavior.",
         "requestBody": {
           "required": true,
           "content": {
@@ -206,14 +221,23 @@
               "schema": {
                 "type": "object",
                 "required": ["path"],
-                "properties": { "path": { "type": "string" } }
+                "properties": {
+                  "path": { "type": "string" },
+                  "durationSeconds": {
+                    "type": "number",
+                    "description": "Silence duration in seconds. If omitted, alert manager applies its own configured default for the alert's priority."
+                  }
+                }
               }
             }
           }
         },
         "responses": {
           "200": { "description": "Accepted" },
-          "400": { "description": "Invalid request body" }
+          "400": { "description": "Invalid request body, or no alertManagerToken configured" },
+          "404": { "description": "No known alert for that path (nothing has been seen on alerts.* for it)" },
+          "401": { "description": "alert manager rejected the token" },
+          "503": { "description": "Could not reach signalk-alert-manager" }
         }
       }
     }
