@@ -9,6 +9,21 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- `speak()`/`synthesizeToFile()` (`lib/tts.js`) and `play()`
+  (`lib/tones.js`) could hang forever with no timeout if the spawned
+  `espeak-ng`/`aplay` child process never emitted `error` or `exit` -
+  a documented Node/libuv behavior on Windows when the target
+  executable can't be resolved. Root-caused via CI: `windows-latest`
+  jobs were consistently hanging for the full 15-minute job timeout on
+  `test/routes.test.js`'s deliberately-unmocked `/voice-clip` real
+  espeak-ng invocation, then getting cancelled - not a runner-pool
+  flake, an actual unbounded wait in production code. Fixed by adding
+  a 10s safety-net timeout that kills the child and resolves
+  gracefully (`{ spoken: false, reason: 'espeak-ng timed out' }` etc.)
+  if neither event fires in time - protects real deployments too, not
+  just CI, since the same hang could occur in the field if espeak-ng
+  or aplay ever wedges.
+
 - A `/test-announce` call made directly (curl, Swagger) only ever
   reached server-side playback (`espeak-ng`/`aplay` on the
   `signalk-server` host) - it never touched the alert queue that the
