@@ -455,27 +455,22 @@ test('GET /voice-clip requires a message query param', async () => {
   plugin.stop()
 })
 
-test('GET /voice-clip never crashes regardless of whether espeak-ng is actually installed', async () => {
-  // deliberately doesn't assert 200 vs 503 - whether espeak-ng is present
-  // varies by environment (this sandbox has it; CI may not), and that
-  // specific behavior is already covered deterministically, with a
-  // mocked spawnFn, in test/tts.test.js. This just confirms the route
-  // itself degrades to a clean response either way, never an unhandled
-  // exception or a hang.
-  const app = makeFakeApp()
-  const router = makeFakeRouter()
-  const pluginFactory = require('../index.js')
-  const plugin = pluginFactory(app)
-  plugin.start({})
-  plugin.registerWithRouter(router)
-
-  const req = { query: { message: 'test message' } }
-  const res = makeFakeRes()
-  await router._routes['GET /voice-clip'](req, res)
-  assert.ok([200, 503].includes(res.statusCode), `expected 200 or 503, got ${res.statusCode}`)
-
-  plugin.stop()
-})
+// A prior version of this test exercised /voice-clip against the real,
+// unmocked espeak-ng binary to confirm the route degrades cleanly when
+// it's missing. That's redundant with the mocked-spawnFn coverage in
+// test/tts.test.js, and turned out actively harmful: on Windows CI
+// runners (no espeak-ng installed), spawn() for a missing executable can
+// leave the child process neither erroring nor exiting, hanging the
+// whole job until GitHub's job timeout killed it - the confirmed root
+// cause of windows-latest CI hangs. lib/tts.js now has its own timeout
+// safety net for that regardless (real-world robustness if espeak-ng
+// ever wedges), but the fix here is simpler: don't touch a real external
+// binary from a test at all. A require.cache-based mock of
+// synthesizeToFile was tried to preserve full route-level coverage, but
+// proved flaky under this suite's concurrent multi-file execution
+// (~1/3 runs hung) - not worth the risk for coverage already provided at
+// the tts.js layer, so the route-level espeak-missing/present assertion
+// was removed rather than reintroducing a different unreliable test.
 
 test('POST /acknowledge without a path is a 400', async () => {
   const app = makeFakeApp()
