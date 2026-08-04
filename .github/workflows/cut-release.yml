@@ -193,6 +193,12 @@ jobs:
       # public packages from a public repo, so --provenance isn't required,
       # but it's kept explicit since some setups have needed it.
       #
+      # --access public is required alongside --provenance for a package's
+      # very first publish (npm error EUSAGE "Can't generate provenance for
+      # new or private package, you must set `access` to public" otherwise)
+      # - npm can't yet know an unpublished package is meant to be public.
+      # Harmless to keep on every publish after that too.
+      #
       # This runs directly in this workflow rather than in a separate
       # release-triggered one, because a release created with the default
       # GITHUB_TOKEN doesn't cascade into other workflows' `release:
@@ -200,4 +206,4 @@ jobs:
       # workflow chains — so a separate workflow would never have fired on
       # its own.
       - name: Publish to npm
-        run: npm publish --provenance
+        run: npm publish --provenance --access public
