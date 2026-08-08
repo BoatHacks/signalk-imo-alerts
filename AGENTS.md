@@ -1,3 +1,5 @@
+@no-slop.md
+
 # signalk-imo-alerts
 
 SignalK plugin for spoken alert announcements + IMO A.1021(26) tone patterns,
